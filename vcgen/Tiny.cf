@@ -1,0 +1,107 @@
+{-
+
+This file contains the grammar of TINY plus explanations how to render them
+in BNFC.
+
+-}
+
+comment "//" ;
+
+-- BNFC expressions that define the part of the grammar for statements
+-- S ::= x := e | skip | S1; S2 | if b then S1 else S2 | while b do S
+
+SSeq.      Stmt ::= Stmt1 ";" Stmt;
+SAssgn.    Stmt1 ::= Ident ":=" Expr;
+SSkip.     Stmt1 ::= "skip";
+-- We use this to declare a general form of expression, but parse it
+-- differently.
+internal SIf. Stmt2 ::= "if" BExpr "then" Stmt "else" Stmt;
+sif1.       Stmt2 ::= "if" BExpr "then" Stmt "else" Stmt1;
+sif2.       Stmt2 ::= "if" BExpr "then" Stmt "fi";
+SWhile.     Stmt2 ::= "while" BExpr "do" Stmt1;
+SWhileInv.  Stmt2 ::= "while" BExpr "do" [Invariant] ";" Stmt1;
+SCall.      Stmt2 ::= "call" Ident "(" Expr ")";
+SBlock.     Stmt2 ::= "begin" Decl ";" Stmt "end";
+sblocknd.     Stmt2 ::= "begin" Stmt "end";
+
+separator Invariant ";" ;  -- optional: defines how elements are separated
+
+Inv. Invariant ::= "invariant" Formula;
+
+_. Stmt ::= Stmt1;
+_. Stmt1 ::= Stmt2;
+
+define sif1 b1 s1 s2 = SIf b1 s1 s2; 
+define sif2 b1 s1  = SIf b1 s1 SSkip;
+define sblocknd s1 = s1;
+
+DVar.	Decl1 ::= "var" Ident "=" Expr;
+DProc.	Decl1 ::= "proc" Ident "(" Ident ")" "{" Stmt "}";
+DProcS.	Decl1 ::= "proc" Ident "(" Ident ")" [SpecEl] "{" Stmt "}";
+DSeq.	Decl ::= Decl ";" Decl1;
+
+separator SpecEl ";" ;  -- optional: defines how elements are separated
+
+SpecPre. SpecEl ::= "precondition" Formula;
+SpecPost. SpecEl ::= "postcondition" Formula;
+
+_.       Decl ::= Decl1;
+
+
+FormulaB.   Formula ::= BExpr;
+FormulaQI.  Formula1 ::= [Binder] "." BExpr "==>" Formula;
+FormulaQS.  Formula1 ::= [Binder] "." BExpr;
+FormulaAnd. Formula1 ::= Formula1 "/\\" Formula1;
+formulaA.   Formula1 ::= Formula1 "∧" Formula1;
+FormulaOr.  Formula1 ::= Formula1 "\\/" Formula1;
+formulaO.   Formula1 ::= Formula1 "∨" Formula1;
+
+_.       Formula1 ::= "(" Formula ")";
+_.       Formula ::= Formula1;
+
+define formulaA f1 f2 = FormulaAnd f1 f2; 
+define formulaO f1 f2  = FormulaOr f1 f2;
+
+separator Binder ".";
+
+ForallB. Binder ::= "forall" Ident;
+ExistsB. Binder ::= "exists" Ident;
+
+-- BNFC expressions that define the part of the grammar for boolean expressions
+-- b ::= true | false | e1 ≤ e2 | ¬b | b1 ∧ b2
+
+BAnd.  BExpr ::= BExpr "∧" BExpr1;
+band.  BExpr ::= BExpr "/\\" BExpr1;
+BEq.   BExpr1 ::= Expr "=" Expr;
+BLeq.   BExpr1 ::= Expr "<=" Expr;
+bleq.   BExpr1 ::= Expr "≤" Expr;
+BGt.   BExpr1 ::= Expr ">" Expr;
+BNot.   BExpr1 ::= "~" BExpr1;
+bnot.   BExpr1 ::= "¬" BExpr1; 
+BTrue.  BExpr1 ::= "true";
+BFalse. BExpr1 ::= "false";
+
+_.       BExpr1 ::= "(" BExpr ")";
+_.       BExpr ::= BExpr1;
+
+define band b1 b2 = BAnd b1 b2;
+define bleq e1 e2 = BLeq e1 e2;
+define bnot b1 = BNot b1;
+
+
+-- BNFC expressions that define the part of the grammar for expressions
+-- e ::= N | x | e1 + e2 | e1 ∗ e2 | e1 − e2
+
+EPlus.   Expr  ::= Expr "+" Expr1;
+EMinus.  Expr  ::= Expr "-" Expr1;
+
+EMul.    Expr1 ::= Expr1 "*" Expr2; 
+EDiv.    Expr1 ::= Expr1 "/" Expr2;
+ENum.    Expr2 ::= Integer;
+EVar.    Expr2 ::= Ident;
+
+_.       Expr2 ::= "(" Expr ")"; -- We silently introduce parentheses 
+_.       Expr1  ::= Expr2;       -- We silently make Expr1 and Expr2 equal
+_.       Expr ::= Expr1;         -- We silently make Expr and Expr1 equal
+
+

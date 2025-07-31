@@ -1,0 +1,12 @@
+begin
+   var x = 0;
+   proc silnia(n) { begin 
+                      if n <= 0 
+                      then x := 1 
+                      else begin 
+                             call silnia(n-1); 
+                             x := x * n
+                           end
+                    end };
+   call silnia(12)
+end

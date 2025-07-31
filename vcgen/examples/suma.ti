@@ -1,0 +1,13 @@
+begin
+   var x = 0;
+   proc suma(n) 
+        precondition n > 0;
+        postcondition (x = n*(n-1)/2)
+   { begin 
+       var m = 0;
+       x := 0;
+       while m <= n do
+         x := x + m
+     end };
+   call suma(12)
+end
