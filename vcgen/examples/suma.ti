@@ -7,7 +7,10 @@ begin
        var m = 0;
        x := 0;
        while m <= n do
-         x := x + m
+          begin
+            x := x + m;
+            m := m + 1
+          end 
      end };
-   call suma(12)
+   call suma(18)
 end

@@ -25,7 +25,7 @@ import qualified Data.Map as Map
 mapGet :: (Ord k) => (Map k v) -> k -> v
 mapGet map arg = map ! arg
 
-mapSet :: (Ord k) => (Map k v) -> k -> v -> (Map k v)
+mapSet :: (Ord k) => (Map k v) -> k -> v -> Map k v
 mapSet map arg val = insert arg val map
 
 
@@ -395,3 +395,9 @@ compute s =
         Right e -> do
             putStrLn "\nParse Successful!"
             putStrLn $ show (iS e rhoP0 rhoV0 sto0)
+            let (fEnv, pre) = vcGen e rhoP0 Set.empty (FormulaB BTrue) in
+              do
+                putStrLn "\nVerification Conditions:"
+                putStrLn $ show (Set.toList fEnv)
+                putStrLn $ "Postcondition: " ++ show pre
+            putStrLn "\nDone."

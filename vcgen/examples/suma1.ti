@@ -1,0 +1,12 @@
+begin
+   var n = 12;
+   var x = 0;
+   var m = 0;
+   x := 0;
+   while m <= n do
+     invariant (x = m * (m+1)/2);;
+     begin
+       x := x + m;
+       m := m + 1
+     end 
+end
