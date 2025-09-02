@@ -219,19 +219,6 @@ declVars (DProcS (Ident p) (Ident x) _ i) bound =
 declVars (DSeq d1 d2) bound =
   declVars d2 (declVars d1 bound)
 
-extendPDecl :: Decl -> PAst -> PAst
-extendPDecl (DProcS (Ident p) (Ident x) specs i) rhoP =
-  let (pres, posts) = Prelude.foldr (\spec (pres, posts) -> case spec of
-                                                     SpecPre f  -> (f:pres, posts)
-                                                     SpecPost f -> (pres, f:posts))
-                            ([], []) specs in
-    insert p (x, pres, posts, i) rhoP
-extendPDecl (DProc (Ident p) (Ident x) i) rhoP =
-  insert p (x, [], [], i) rhoP 
-extendPDecl (DVar (Ident var) expr) rhoP =
-  rhoP
-extendPDecl (DSeq d1 d2) rhoP =
-  extendPDecl d2 (extendPDecl d1 rhoP)
 
 -- Free variables the values of which are modified by a statement
 -- the second argument is the set of bound variables
@@ -488,9 +475,27 @@ filterDirty forms modv =
   let lform' = Prelude.filter (\f -> not $ containsVars f modv) lform in
     combineAnd lform'
 
+-- Extend the procedure environment with a declaration
+-- returns the extended environment and the set of conditions that must hold
+-- for the declaration to be correct
+extendPDecl :: Decl -> PAst -> (PAst, FEnv)
+extendPDecl (DProcS (Ident p) (Ident x) specs i) rhoP =
+  let (pres, posts) = Prelude.foldr (\spec (pres, posts) -> case spec of
+                                                     SpecPre f  -> (f:pres, posts)
+                                                     SpecPost f -> (pres, f:posts))
+                            ([], []) specs in
+    (insert p (x, pres, posts, i) rhoP, Set.empty) -- TODO: wrong placeholder for FEnv
+extendPDecl (DProc (Ident p) (Ident x) i) rhoP =
+  (insert p (x, [], [], i) rhoP , Set.empty)  -- TODO: wrong placeholder for FEnv
+extendPDecl (DVar (Ident var) expr) rhoP =
+  (rhoP, Set.empty) -- variable declaration does not add any conditions
+extendPDecl (DSeq d1 d2) rhoP =
+  let (rhoP', cond1) = extendPDecl d1 rhoP in
+    let (rhoP'', cond2) = extendPDecl d2 rhoP' in
+      (rhoP'', Set.union cond1 cond2)
 
 -- vcGen statements
--- TODO: fEnv probably not necessary to be passed around
+-- fEnv contains additional conditions that must be fulfilled to ensure correctness
 vcGen :: Stmt -> PAst -> FEnv -> Formula -> (FEnv, Formula)
 vcGen (SAssgn (Ident var) expr) rhoP fEnv post =
   let pre = substF post var expr in -- post[var := expr]
@@ -532,9 +537,10 @@ vcGen (SCall (Ident pvar) expr) rhoP fEnv post =
       let pre = FormulaAnd pre postvalid in
         (fEnv', pre)
 vcGen (SBlock dec i) rhoP fEnv post =
-  let rhoP' = extendPDecl dec rhoP in
+  let (rhoP', conds) = extendPDecl dec rhoP in
   let (fEnv', pre) = vcGen i rhoP' fEnv post in
-  (fEnv', pre)  
+    -- TODO: we should filter out from pre the conjuncts that refer to variables declared in dec
+  (Set.union fEnv' conds, pre)
 
 main :: IO ()
 main = do
