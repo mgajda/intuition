@@ -48,19 +48,22 @@ SpecPost. SpecEl ::= "postcondition" Formula;
 _.       Decl ::= Decl1;
 
 
-FormulaB.   Formula ::= BExpr;
+FormulaDA.  Formula1 ::= FormulaD;
+FormulaI.   Formula1 ::= Formula "==>" Formula;
 FormulaQI.  Formula1 ::= [Binder] "." BExpr "==>" Formula;
 FormulaQS.  Formula1 ::= [Binder] "." BExpr;
-FormulaAnd. Formula1 ::= Formula1 "/\\" Formula1;
-formulaA.   Formula1 ::= Formula1 "∧" Formula1;
-FormulaOr.  Formula1 ::= Formula1 "\\/" Formula1;
-formulaO.   Formula1 ::= Formula1 "∨" Formula1;
+FormulaAnd. Formula1 ::= Formula1 "/\\" Formula;
+formulaA.   Formula1 ::= Formula1 "∧" Formula;
+
+FormulaDOr.  FormulaD ::= BExpr "\\/" FormulaD;
+formulaDO.   FormulaD ::= BExpr "∨" FormulaD;
+FormulaDB.   FormulaD ::= BExpr;
 
 _.       Formula1 ::= "(" Formula ")";
 _.       Formula ::= Formula1;
 
 define formulaA f1 f2 = FormulaAnd f1 f2; 
-define formulaO f1 f2  = FormulaOr f1 f2;
+define formulaDO f1 f2  = FormulaDOr f1 f2;
 
 separator Binder ".";
 

@@ -1,10 +1,12 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use fewer imports" #-}
 module Main where
 
 import Prelude
 
 import System.Environment ( getArgs )
 import System.Exit        ( exitFailure )
-import Control.Monad      ( when )
+import Control.Monad      ( join, when )
 
 import Data.Map
 import qualified Data.Set as Set
@@ -12,7 +14,7 @@ import qualified GHC.Integer (leInteger)
 import qualified GHC.Integer (gtInteger)
 
 
-import Tiny.Abs ( Expr(..), BExpr(..), Stmt(..), Ident(..), Decl(..), Formula (..), Binder(..), Invariant (..) )
+import Tiny.Abs ( Expr(..), BExpr(..), Stmt(..), SpecEl(..), Ident(..), Decl(..), FormulaD (..), Formula (..), Binder(..), Invariant (..) )
 import Tiny.Lex   ( Token, mkPosToken )
 import Tiny.Par   ( pExpr, pBExpr, pStmt, myLexer )
 import Tiny.Print ( Print, printTree )
@@ -21,6 +23,12 @@ import Foreign (free)
 import Data.Array.Base (bOOL_INDEX)
 import Data.Attoparsec.ByteString.Char8 (isDigit)
 import qualified Data.Map as Map
+import Control.Applicative (Alternative(empty))
+import System.Posix (emptySignalSet, rename)
+import System.FilePath (combine)
+import qualified Data.IntMap as IntMap
+import Distribution.Simple.InstallDirs (substituteInstallDirTemplates)
+import qualified Control.Applicative as Map
 
 mapGet :: (Ord k) => (Map k v) -> k -> v
 mapGet map arg = map ! arg
@@ -35,6 +43,7 @@ type Var = String
 type VEnv = Map Var Loc
 type Proc = Integer -> Store -> Store
 type PEnv = Map Var Proc
+type PAst = Map Var (Var, [Formula], [Formula], Stmt) -- (param, pre, post, body)
 data Store = CStore {currMap :: Map Loc Integer, nextLoc :: Loc} deriving Show
 type FEnv = Set.Set Formula
 
@@ -149,6 +158,7 @@ iS (SBlock dec i) rhoP rhoV sto =
   let (rhoP', rhoV', sto') = iD dec rhoP rhoV sto in
     iS i rhoP' rhoV' sto'
 
+-- Free variables in expressions
 freeVars :: Expr -> Set.Set Var 
 freeVars (EPlus exp0 exp1) =
   Set.union (freeVars exp0) (freeVars exp1)
@@ -161,18 +171,102 @@ freeVars (EDiv exp0 exp1) =
 freeVars (ENum _) = Set.empty
 freeVars (EVar (Ident x)) = Set.singleton x
 
+-- Free variables in boolean expressions
+freeVarsB :: BExpr -> Set.Set Var
+freeVarsB (BAnd bex0 bex1) =
+  Set.union (freeVarsB bex0) (freeVarsB bex1)
+freeVarsB (BEq exp0 exp1) =
+  Set.union (freeVars exp0) (freeVars exp1)
+freeVarsB (BLeq exp0 exp1) =
+  Set.union (freeVars exp0) (freeVars exp1)
+freeVarsB (BGt exp0 exp1) =
+  Set.union (freeVars exp0) (freeVars exp1)
+freeVarsB (BNot bex) =
+  freeVarsB bex
+freeVarsB BTrue = Set.empty
+freeVarsB BFalse = Set.empty
+
+freeVarsD :: FormulaD -> Set.Set Var
+freeVarsD (FormulaDOr bex df) =
+  Set.union (freeVarsB bex) (freeVarsD df)
+freeVarsD (FormulaDB bex) =
+  freeVarsB bex
+
+freeVarsF :: Formula -> Set.Set Var 
+freeVarsF (FormulaDA df) = freeVarsD df
+freeVarsF (FormulaQI binders bex1 f2) =
+  let binderset = Set.fromList [b | ForallB (Ident b) <- binders] `Set.union` 
+                  Set.fromList [b | ExistsB (Ident b) <- binders] in
+  let vars1 = Set.difference (freeVarsB bex1) binderset in
+  let vars2 = Set.difference (freeVarsF f2) binderset in
+    Set.union vars1 vars2
+freeVarsF (FormulaQS binders bex) =
+  let binderset = Set.fromList [b | ForallB (Ident b) <- binders] `Set.union` 
+                  Set.fromList [b | ExistsB (Ident b) <- binders] in
+    Set.difference (freeVarsB bex) binderset
+freeVarsF (FormulaAnd f1 f2) =
+  Set.union (freeVarsF f1) (freeVarsF f2)
+
+
+-- Adds declared variables to the  set of bound variables
+declVars :: Decl -> Set.Set Var -> Set.Set Var
+declVars (DVar (Ident var) expr) bound =
+  Set.insert var bound
+declVars (DProc (Ident p) (Ident x) i) bound = 
+  bound
+declVars (DProcS (Ident p) (Ident x) _ i) bound = 
+  bound
+declVars (DSeq d1 d2) bound =
+  declVars d2 (declVars d1 bound)
+
+extendPDecl :: Decl -> PAst -> PAst
+extendPDecl (DProcS (Ident p) (Ident x) specs i) rhoP =
+  let (pres, posts) = Prelude.foldr (\spec (pres, posts) -> case spec of
+                                                     SpecPre f  -> (f:pres, posts)
+                                                     SpecPost f -> (pres, f:posts))
+                            ([], []) specs in
+    insert p (x, pres, posts, i) rhoP
+extendPDecl (DProc (Ident p) (Ident x) i) rhoP =
+  insert p (x, [], [], i) rhoP 
+extendPDecl (DVar (Ident var) expr) rhoP =
+  rhoP
+extendPDecl (DSeq d1 d2) rhoP =
+  extendPDecl d2 (extendPDecl d1 rhoP)
+
+-- Free variables the values of which are modified by a statement
+-- the second argument is the set of bound variables
+modVars :: Stmt -> Set.Set Var -> Set.Set Var
+modVars (SAssgn (Ident var) expr) bound = 
+  if Set.member var bound 
+    then Set.empty
+    else Set.singleton var
+modVars (SSkip) bound = Set.empty
+modVars (SIf bex i1 i2) bound =
+  Set.union (modVars i1 bound) (modVars i2 bound)
+modVars (SWhile bex i) bound =
+  modVars i bound
+modVars (SWhileInv bex _ i) bound =
+  modVars i bound
+modVars (SSeq i1 i2) bound =
+  Set.union (modVars i1 bound) (modVars i2 bound)
+modVars (SCall (Ident var) expr) bound = 
+  Set.empty
+modVars (SBlock dec i) bound =
+  let bound' = declVars dec bound in
+    modVars i bound'
+
 suffixNum :: Var -> Integer
 suffixNum var = 
   let sfx = reverse . takeWhile isDigit . reverse $ var in
     read sfx :: Integer
 
 maxSuffixNum :: Set.Set Var -> Integer
-maxSuffixNum fVars =
+maxSuffixNum =
   Set.foldl
     (\maxsfx var -> 
       let num = suffixNum var in
-        if num > maxsfx then num else maxsfx)
-    0 fVars
+        max num maxsfx)
+    0
 
 freshNames :: Set.Set Var -> Set.Set Var -> Map Var Var
 freshNames conflicts fVars = 
@@ -180,7 +274,7 @@ freshNames conflicts fVars =
   let (fnames, no) = Set.foldl (\(res :: Map Var Var, no) var -> 
                                   let newVar = var ++ (show no) in
                                   (insert var newVar res, no + 1))
-                                (empty, maxsfx+1) conflicts in
+                                (Data.Map.empty, maxsfx+1) conflicts in
   fnames
     
 renameVars :: Expr -> Map Var Var -> Expr
@@ -225,8 +319,22 @@ renameBinders (ExistsB (Ident x):bs) c_fnames =
                  Nothing     -> Ident x in  
   ExistsB newVar : renameBinders bs c_fnames
 
+
+alphaConvD :: FormulaD -> Set.Set Var -> FormulaD
+alphaConvD (FormulaDOr bex df) fVars =
+  let conflicts = Set.intersection fVars (freeVarsB bex) in
+  let c_names = freshNames conflicts fVars in
+  let bex' = renameBVars bex (freshNames (Set.intersection fVars (freeVarsB bex)) fVars) in
+  let df' = alphaConvD df fVars in
+    FormulaDOr bex' df'
+alphaConvD (FormulaDB bex) fVars =
+  let conflicts = Set.intersection fVars (freeVarsB bex) in
+  let c_names = freshNames conflicts fVars in
+  let bex' = renameBVars bex c_names in
+    FormulaDB bex'
+
 alphaConv :: Formula -> Set.Set Var -> Formula
-alphaConv (FormulaB bex) fVars = FormulaB bex
+alphaConv (FormulaDA df) fVars = FormulaDA df
 alphaConv (FormulaQI binders bex1 bex2) fVars =
   let binderset = Set.fromList [b | ForallB (Ident b) <- binders] `Set.union` 
                         Set.fromList [b | ExistsB (Ident b) <- binders] in  
@@ -248,13 +356,18 @@ alphaConv (FormulaAnd f1 f2) fVars =
   let f1' = alphaConv f1 fVars in
   let f2' = alphaConv f2 fVars in
     FormulaAnd f1' f2'
-alphaConv (FormulaOr f1 f2) fVars =
-  let f1' = alphaConv f1 fVars in
-  let f2' = alphaConv f2 fVars in
-    FormulaOr f1' f2'
+
+renameDVars :: FormulaD -> Map Var Var -> FormulaD
+renameDVars (FormulaDOr bex df) c_fnames =
+  let bex' = renameBVars bex c_fnames in
+  let df' = renameDVars df c_fnames in
+    FormulaDOr bex' df'
+renameDVars (FormulaDB bex) c_fnames =
+  let bex' = renameBVars bex c_fnames in
+    FormulaDB bex'
 
 renameBVarsF :: Formula -> Map Var Var -> Formula
-renameBVarsF (FormulaB bex) c_fnames = FormulaB (renameBVars bex c_fnames)
+renameBVarsF (FormulaDA df) c_fnames = FormulaDA (renameDVars df c_fnames)
 renameBVarsF (FormulaQI binders bex1 bex2) c_fnames =
   let binderset = Set.fromList [b | ForallB (Ident b) <- binders] `Set.union` 
                         Set.fromList [b | ExistsB (Ident b) <- binders] in
@@ -276,14 +389,10 @@ renameBVarsF (FormulaAnd f1 f2) c_fnames =
   let f1' = renameBVarsF f1 c_fnames in
   let f2' = renameBVarsF f2 c_fnames in
     FormulaAnd f1' f2'
-renameBVarsF (FormulaOr f1 f2) c_fnames =
-  let f1' = renameBVarsF f1 c_fnames in
-  let f2' = renameBVarsF f2 c_fnames in
-    FormulaOr f1' f2'
 
 
 substF :: Formula -> Var -> Expr -> Formula
-substF (FormulaB bex) var expr = FormulaB (substB bex var expr)
+substF (FormulaDA df) var expr = FormulaDA (substD df var expr)
 substF (FormulaQI binders bex1 bex2) var expr =
   let fVars = freeVars expr in
   let nform = alphaConv (FormulaQI binders bex1 bex2) fVars in
@@ -305,10 +414,16 @@ substF (FormulaAnd f1 f2) var expr =
   let f1' = substF f1 var expr in
   let f2' = substF f2 var expr in
     FormulaAnd f1' f2'
-substF (FormulaOr f1 f2) var expr =
-  let f1' = substF f1 var expr in
-  let f2' = substF f2 var expr in
-    FormulaOr f1' f2' 
+
+
+substD :: FormulaD -> Var -> Expr -> FormulaD
+substD (FormulaDOr bex df) var expr =
+  let bex' = substB bex var expr in
+  let df' = substD df var expr in
+    FormulaDOr bex' df'
+substD (FormulaDB bex) var expr =
+  let bex' = substB bex var expr in
+    FormulaDB bex'
 
 substB :: BExpr -> Var -> Expr -> BExpr
 substB (BAnd bex0 bex1) var expr =
@@ -337,9 +452,46 @@ substE (ENum n) _ _ = ENum n
 substE (EVar (Ident x)) var expr =
   if x == var then expr else EVar (Ident x)
 
+flattenAnd :: Formula -> [Formula]
+flattenAnd (FormulaAnd f1 f2) = flattenAnd f1 ++ flattenAnd f2
+flattenAnd f = [f]
+
+combineAnd :: [Formula] -> Formula
+combineAnd [f,f'] = FormulaAnd f f'
+combineAnd (f:fs) = FormulaAnd f (combineAnd fs)
+
+containsVars :: Formula -> Set.Set Var -> Bool
+containsVars (FormulaDA fd) vars =
+  let fvars = freeVarsD fd in
+    not $ Set.null (Set.intersection fvars vars)
+containsVars (FormulaQI binders bex frm) vars =
+  let binderset = Set.fromList [b | ForallB (Ident b) <- binders] `Set.union` 
+                  Set.fromList [b | ExistsB (Ident b) <- binders] in
+  let vars1 = (freeVarsB bex) `Set.difference` binderset in
+  let vars2 = (freeVarsF frm) `Set.difference` binderset in
+  let varsF = Set.union vars1 vars2 in
+    not $ Set.null (Set.intersection varsF vars)
+containsVars (FormulaQS binders bex) vars =
+  let binderset = Set.fromList [b | ForallB (Ident b) <- binders] `Set.union` 
+                  Set.fromList [b | ExistsB (Ident b) <- binders] in
+  let varsF = (freeVarsB bex) `Set.difference` binderset in
+    not $ Set.null (Set.intersection varsF vars)
+containsVars (FormulaAnd f1 fd) vars =
+  let fvars = freeVarsF f1 `Set.union` freeVarsF fd in
+    not $ Set.null (Set.intersection fvars vars)
+
+
+-- Remove from the formulas the conjuncts that refer to any of the variables in modv
+filterDirty :: [Formula] -> Set.Set Var -> Formula
+filterDirty forms modv = 
+  let lform = join (Prelude.map flattenAnd forms) in
+  let lform' = Prelude.filter (\f -> not $ containsVars f modv) lform in
+    combineAnd lform'
+
 
 -- vcGen statements
-vcGen :: Stmt -> PEnv -> FEnv -> Formula -> (FEnv, Formula)
+-- TODO: fEnv probably not necessary to be passed around
+vcGen :: Stmt -> PAst -> FEnv -> Formula -> (FEnv, Formula)
 vcGen (SAssgn (Ident var) expr) rhoP fEnv post =
   let pre = substF post var expr in -- post[var := expr]
     (fEnv, pre)
@@ -349,12 +501,12 @@ vcGen (SIf bex i1 i2) rhoP fEnv post =
   let (fEnv2, pre2) = vcGen i2 rhoP fEnv post in
   let pre = FormulaAnd (FormulaQI [] bex pre1)
                        (FormulaQI [] (BNot bex) pre2) in
-  (Set.union fEnv1 fEnv2, pre)
+    (Set.union fEnv1 fEnv2, pre)
   -- The invariant for while loop with no invariant is BTrue
 vcGen (SWhile bex i) rhoP fEnv post = 
-  vcGen (SWhileInv bex [Inv (FormulaB BTrue)] i) rhoP fEnv post
+  vcGen (SWhileInv bex [Inv (FormulaDA $ FormulaDB BTrue)] i) rhoP fEnv post
 vcGen (SWhileInv bex invs i) rhoP fEnv post =
-  let combInv = Prelude.foldl (\acc (Inv f) -> FormulaAnd acc f) (FormulaB BTrue) invs in
+  let combInv = Prelude.foldl (\acc (Inv f) -> FormulaAnd acc f) (FormulaDA $ FormulaDB BTrue) invs in
   let fEnv' = Prelude.foldl (\accEnv (Inv f) -> 
                       let (fEnv', f') = vcGen i rhoP accEnv f in
                       Set.insert f' fEnv') 
@@ -365,10 +517,22 @@ vcGen (SSeq i1 i2) rhoP fEnv post =
   let (fEnv1, pre1) = vcGen i1 rhoP fEnv post in
   let (fEnv2, pre2) = vcGen i2 rhoP fEnv1 pre1 in
   (fEnv2, pre2)
-vcGen (SCall (Ident var) expr) rhoP fEnv post =
-  (fEnv, post) -- TODO: this is not correct, we need to handle the procedure call differently
+vcGen (SCall (Ident pvar) expr) rhoP fEnv post =
+  case Map.lookup pvar rhoP of
+    Nothing -> (fEnv, FormulaDA $ FormulaDB BFalse) -- procedure not found, return true
+    Just (fpar, fpre, fpost, body) ->
+      let modv = modVars body (Set.singleton fpar) in
+      -- modv are global variables that are changed by the procedure
+      let postvalid = filterDirty fpost modv in -- TODO, we should remove conjuncts referring to modv
+      -- We return here the `precondition of the procedure /\ konjunct of post
+      -- with filtered out conjuncts referring to modv
+      let cond = FormulaI (combineAnd fpost) post in
+      let fEnv' = Set.insert cond fEnv in
+      -- we add to fEnv the implication `postcondition of the procedure => post`
+      let pre = FormulaAnd pre postvalid in
+        (fEnv', pre)
 vcGen (SBlock dec i) rhoP fEnv post =
-  let (rhoP', rhoV', sto') = iD dec rhoP rhoV0 sto0 in
+  let rhoP' = extendPDecl dec rhoP in
   let (fEnv', pre) = vcGen i rhoP' fEnv post in
   (fEnv', pre)  
 
@@ -395,7 +559,7 @@ compute s =
         Right e -> do
             putStrLn "\nParse Successful!"
             putStrLn $ show (iS e rhoP0 rhoV0 sto0)
-            let (fEnv, pre) = vcGen e rhoP0 Set.empty (FormulaB BTrue) in
+            let (fEnv, pre) = vcGen e (Data.Map.empty) Set.empty (FormulaDA $ FormulaDB BTrue) in
               do
                 putStrLn "\nVerification Conditions:"
                 putStrLn $ show (Set.toList fEnv)
