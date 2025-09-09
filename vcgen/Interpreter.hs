@@ -29,6 +29,20 @@ import System.FilePath (combine)
 import qualified Data.IntMap as IntMap
 import Distribution.Simple.InstallDirs (substituteInstallDirTemplates)
 import qualified Control.Applicative as Map
+import Prelude (print)
+
+
+
+-- instance Show Formula where
+--   show (FormulaDA f) = show f
+--   show (FormulaI f1 f2) = "(" ++ show f1 ++ " ==> " ++ show f2 ++ ")"
+--   show (FormulaQI binders bex f) = show binders ++ ". (" ++ show bex ++ " ==> " ++ show f ++ ")"
+--   show (FormulaQS binders bex) = show binders ++ ". (" ++ show bex ++ ")"
+--   show (FormulaAnd f1 f2) = "(" ++ show f1 ++ " ∧ " ++ show f2 ++ ")"
+
+printVCs :: [String] -> String
+printVCs [] = ""
+printVCs (vc:rest) = vc ++ "\n" ++ printVCs rest
 
 mapGet :: (Ord k) => (Map k v) -> k -> v
 mapGet map arg = map ! arg
@@ -447,10 +461,11 @@ flattenAnd (FormulaAnd f1 f2) = flattenAnd f1 ++ flattenAnd f2
 flattenAnd f = [f]
 
 combineAnd :: [Formula] -> Formula
-combineAnd [] = FormulaDA (FormulaDB BTrue) -- neutral element for conjunction
 combineAnd [f] = f
 combineAnd [f,f'] = FormulaAnd f f'
 combineAnd (f:fs) = FormulaAnd f (combineAnd fs)
+combineAnd [] = FormulaDA (FormulaDB BTrue) -- neutral element for conjunction
+
 
 containsVars :: Formula -> Set.Set Var -> Bool
 containsVars (FormulaDA fd) vars =
@@ -492,16 +507,27 @@ extendPDecl (DProcS (Ident p) (Ident x) specs i) rhoP =
   let postsA = combineAnd posts in
   let presA = combineAnd pres in
   let (fEnv1, pre1) = vcGen i rhoP Set.empty postsA in
-    (insert p (x, pres, posts, i) rhoP, Set.insert pre1 fEnv1) -- TODO: wrong placeholder for FEnv
+  let condVC = FormulaI presA pre1 in
+    (insert p (x, pres, posts, i) rhoP, Set.insert condVC fEnv1) -- TODO: wrong placeholder for FEnv
 extendPDecl (DProc (Ident p) (Ident x) i) rhoP =
   let (fEnv1, pre1) = vcGen i rhoP Set.empty (FormulaDA $ FormulaDB BTrue) in -- In case there is no postcondition, we assume it is just True
-  (insert p (x, [], [], i) rhoP, Set.insert pre1 fEnv1)
+  let condVC = FormulaI (FormulaDA $ FormulaDB BTrue) pre1 in
+    (insert p (x, [], [], i) rhoP, Set.insert condVC fEnv1)
 extendPDecl (DVar (Ident var) expr) rhoP =
   (rhoP, Set.empty) -- variable declaration does not add any conditions
 extendPDecl (DSeq d1 d2) rhoP =
   let (rhoP', cond1) = extendPDecl d1 rhoP in
     let (rhoP'', cond2) = extendPDecl d2 rhoP' in
       (rhoP'', Set.union cond1 cond2)
+
+vcGenDec :: Decl -> Formula -> Formula
+vcGenDec (DVar (Ident var) expr) post =
+  substF post var expr
+vcGenDec (DProc (Ident p) (Ident x) i) post = post
+vcGenDec (DProcS (Ident p) (Ident x) specs i) post = post
+vcGenDec (DSeq d1 d2) post =
+  let post' = vcGenDec d2 post in
+    vcGenDec d1 post'
 
 -- vcGen statements
 -- fEnv contains additional conditions that must be fulfilled to ensure correctness
@@ -520,16 +546,17 @@ vcGen (SIf bex i1 i2) rhoP fEnv post =
 vcGen (SWhile bex i) rhoP fEnv post = 
   vcGen (SWhileInv bex [Inv (FormulaDA $ FormulaDB BTrue)] i) rhoP fEnv post
 vcGen (SWhileInv bex invs i) rhoP fEnv post =
-  let combInv = Prelude.foldl (\acc (Inv f) -> FormulaAnd acc f) (FormulaDA $ FormulaDB BTrue) invs in
-  let fEnv' = Prelude.foldl (\accEnv (Inv f) -> 
-                      let (fEnv', f') = vcGen i rhoP accEnv f in
-                      Set.insert f' fEnv') 
-                    fEnv 
-                    invs in
-  (fEnv', combInv)
+  let combInv = combineAnd $ Prelude.map (\(Inv f) -> f) invs in
+  let whileRes = FormulaAnd combInv (FormulaDA $ FormulaDB $ BNot bex) in
+  let whileIn = FormulaAnd combInv (FormulaDA $ FormulaDB $ bex) in
+  let fEnv' = Set.insert (FormulaI whileRes post) fEnv in
+  let fEnv'' = Prelude.foldl (\accfEnv (Inv f) -> 
+                      let (fEnvG, f') = vcGen i rhoP accfEnv f in
+                      Set.insert (FormulaI whileIn f') fEnvG) fEnv' invs in
+  (fEnv'', combInv)
 vcGen (SSeq i1 i2) rhoP fEnv post =
-  let (fEnv1, pre1) = vcGen i1 rhoP fEnv post in
-  let (fEnv2, pre2) = vcGen i2 rhoP fEnv1 pre1 in
+  let (fEnv1, pre1) = vcGen i2 rhoP fEnv post in
+  let (fEnv2, pre2) = vcGen i1 rhoP fEnv1 pre1 in
   (fEnv2, pre2)
 vcGen (SCall (Ident pvar) expr) rhoP fEnv post =
   case Map.lookup pvar rhoP of
@@ -540,16 +567,20 @@ vcGen (SCall (Ident pvar) expr) rhoP fEnv post =
       let postvalid = filterDirty fpost modv in -- TODO, we should remove conjuncts referring to modv
       -- We return here the `precondition of the procedure /\ konjunct of post
       -- with filtered out conjuncts referring to modv
-      let cond = FormulaI (combineAnd fpost) post in
+      let cond = FormulaI (combineAnd fpost) post in 
+      -- procedure postcondition implies the postcondition of the call
       let fEnv' = Set.insert cond fEnv in
       -- we add to fEnv the implication `postcondition of the procedure => post`
-      let pre = FormulaAnd pre postvalid in
-        (fEnv', pre)
+      let fpre' = combineAnd fpre in
+      let fpre'' = substF fpre' fpar expr in
+      let pre = FormulaAnd fpre'' postvalid in
+      (fEnv', pre)
 vcGen (SBlock dec i) rhoP fEnv post =
   let (rhoP', conds) = extendPDecl dec rhoP in
   let (fEnv', pre) = vcGen i rhoP' fEnv post in
+  let pre' = vcGenDec dec pre in
     -- TODO: we should filter out from pre the conjuncts that refer to variables declared in dec
-  (Set.union fEnv' conds, pre)
+  (Set.union fEnv' conds, pre')
 
 main :: IO ()
 main = do
@@ -576,7 +607,8 @@ compute s =
             putStrLn $ show (iS e rhoP0 rhoV0 sto0)
             let (fEnv, pre) = vcGen e (Data.Map.empty) Set.empty (FormulaDA $ FormulaDB BTrue) in
               do
-                putStrLn "\nVerification Conditions:"
-                putStrLn $ show (Set.toList fEnv)
-                putStrLn $ "Main condition: " ++ show pre
+                putStrLn "\nVerification Conditions: ["
+                putStrLn $ printVCs (Prelude.map printTree (Set.toList fEnv))
+                putStrLn ""
+                putStrLn $ "Main condition: " ++ printTree pre
             putStrLn "\nDone."
