@@ -43,6 +43,9 @@ type Var = String
 type VEnv = Map Var Loc
 type Proc = Integer -> Store -> Store
 type PEnv = Map Var Proc
+-- PAst is a procedure environment that is suitable for verification condition generation
+-- it maps procedure names to syntactic representations of procedures
+-- each procedure is represented as a tuple (param, preconditions, postconditions, body)
 type PAst = Map Var (Var, [Formula], [Formula], Stmt) -- (param, pre, post, body)
 data Store = CStore {currMap :: Map Loc Integer, nextLoc :: Loc} deriving Show
 type FEnv = Set.Set Formula
@@ -444,6 +447,8 @@ flattenAnd (FormulaAnd f1 f2) = flattenAnd f1 ++ flattenAnd f2
 flattenAnd f = [f]
 
 combineAnd :: [Formula] -> Formula
+combineAnd [] = FormulaDA (FormulaDB BTrue) -- neutral element for conjunction
+combineAnd [f] = f
 combineAnd [f,f'] = FormulaAnd f f'
 combineAnd (f:fs) = FormulaAnd f (combineAnd fs)
 
@@ -476,7 +481,7 @@ filterDirty forms modv =
     combineAnd lform'
 
 -- Extend the procedure environment with a declaration
--- returns the extended environment and the set of conditions that must hold
+-- returns the extended environment and the set of verification conditions that must hold
 -- for the declaration to be correct
 extendPDecl :: Decl -> PAst -> (PAst, FEnv)
 extendPDecl (DProcS (Ident p) (Ident x) specs i) rhoP =
@@ -484,9 +489,13 @@ extendPDecl (DProcS (Ident p) (Ident x) specs i) rhoP =
                                                      SpecPre f  -> (f:pres, posts)
                                                      SpecPost f -> (pres, f:posts))
                             ([], []) specs in
-    (insert p (x, pres, posts, i) rhoP, Set.empty) -- TODO: wrong placeholder for FEnv
+  let postsA = combineAnd posts in
+  let presA = combineAnd pres in
+  let (fEnv1, pre1) = vcGen i rhoP Set.empty postsA in
+    (insert p (x, pres, posts, i) rhoP, Set.insert pre1 fEnv1) -- TODO: wrong placeholder for FEnv
 extendPDecl (DProc (Ident p) (Ident x) i) rhoP =
-  (insert p (x, [], [], i) rhoP , Set.empty)  -- TODO: wrong placeholder for FEnv
+  let (fEnv1, pre1) = vcGen i rhoP Set.empty (FormulaDA $ FormulaDB BTrue) in -- In case there is no postcondition, we assume it is just True
+  (insert p (x, [], [], i) rhoP, Set.insert pre1 fEnv1)
 extendPDecl (DVar (Ident var) expr) rhoP =
   (rhoP, Set.empty) -- variable declaration does not add any conditions
 extendPDecl (DSeq d1 d2) rhoP =
@@ -569,5 +578,5 @@ compute s =
               do
                 putStrLn "\nVerification Conditions:"
                 putStrLn $ show (Set.toList fEnv)
-                putStrLn $ "Postcondition: " ++ show pre
+                putStrLn $ "Main condition: " ++ show pre
             putStrLn "\nDone."
