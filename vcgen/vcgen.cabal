@@ -62,21 +62,22 @@ custom-setup
                     directory >=1.3.6.0,
                     process >=1.6.13.2
 
---library vcgen-lib
---  hs-source-dirs:   app, app/Tiny
---  exposed-modules:  Logic, AbsTiny, ParTiny, ErrM, PrintTiny, 
---                    SkelTiny, LexTiny,
---  build-depends:    base >=4.14 && <5
---  default-language: Haskell2010
-
---test-suite vcgen-tests
---  type:                exitcode-stdio-1.0
---  hs-source-dirs:      test
---  main-is:             Spec.hs
---  build-depends:       base >=4.14 && <5,
---                       vcgen-lib,
---                       hspec
---  default-language:    Haskell2010
+test-suite vcgen-tests
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test, app, app/Tiny
+  main-is:             Specs.hs
+  build-depends:       base >=4.14 && <5,
+                       QuickCheck,
+                       tasty,
+                       tasty-quickcheck,
+                       tasty-hunit,
+                       containers >=0.6.7,
+                       integer-gmp >=1.0.3.0,
+                       attoparsec >=0.13.2.5,
+                       unix >=2.7.2.2,
+                       filepath >=1.4.2.1,
+                       array >=0.5.4.0,
+  default-language:    Haskell2010
 
 executable vcgen
     -- Import common warning flags.
@@ -99,7 +100,6 @@ executable vcgen
                     unix >=2.7.2.2,
                     filepath >=1.4.2.1,
                     array >=0.5.4.0,
-                    Cabal >=2.4
 
     build-tool-depends: BNFC:bnfc >=2.9.6,
                     happy:happy >=1.19.12,
