@@ -16,8 +16,8 @@ import qualified GHC.Integer (gtInteger)
 
 import AbsTiny ( Expr(..), BExpr(..), Stmt(..), SpecEl(..), Ident(..), Decl(..), FormulaD (..), Formula (..), Binder(..), Invariant (..) )
 import LexTiny   ( Token, mkPosToken )
-import ParTiny   ( pExpr, pBExpr, pStmt, myLexer )
-import PrintTiny ( Print, printTree )
+
+
 import SkelTiny  ()
 import Foreign (free)
 import Data.Array.Base (bOOL_INDEX)
