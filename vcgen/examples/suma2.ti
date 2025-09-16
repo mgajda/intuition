@@ -1,0 +1,19 @@
+begin
+   var x = 12;
+   var y = 13;
+   proc suma(n) 
+        precondition n > 0;
+        postcondition (x = n*(n-1)/2)
+   { begin 
+       var m = 0;
+       x := 0;
+       while m <= n do
+	  invariant m <= n+1;
+	  invariant x = (m-1) * m /2;;
+          begin
+            x := x + m;
+            m := m + 1
+          end 
+     end };
+   call suma(18)
+end
