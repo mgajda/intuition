@@ -5,7 +5,7 @@ import Distribution.Types.HookedBuildInfo (HookedBuildInfo)
 
 main :: IO ()
 main = defaultMainWithHooks simpleUserHooks
-  { preConf = \_ _ -> do
+  { postConf = \_ _ _ _ -> do
       createDirectoryIfMissing True "app/Tiny"
 
       -- Run bnfc
@@ -18,5 +18,5 @@ main = defaultMainWithHooks simpleUserHooks
       callProcess "happy" ["app/Tiny/ParTiny.y", "--array",  
                         "--info", "--ghc", "--coerce", 
                         "-o", "app/Tiny/ParTiny.hs"]
-      return (Nothing, [])
+      return ()
   }
