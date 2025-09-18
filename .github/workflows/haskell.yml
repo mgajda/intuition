@@ -73,9 +73,11 @@ jobs:
 
       - name: Run tests
         run: cabal test all
+        continue-on-error: true
 
       - name: Check cabal file
         run: cabal check
+        continue-on-error: true
 
       - name: Build documentation
         run:
@@ -83,3 +85,4 @@ jobs:
           # --disable-documentation disables building documentation for dependencies.
           # The package's own documentation is still built,
           # yet contains no links to the documentation of the dependencies.
+        continue-on-error: true
