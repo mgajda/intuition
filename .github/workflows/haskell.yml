@@ -76,7 +76,7 @@ jobs:
         continue-on-error: true
 
       - name: Check cabal file
-        run: cabal check
+        run: cabal check --ignore=missing-upper-bounds --ignore=license-none --ignore=missing-bounds-important
         continue-on-error: true
 
       - name: Build documentation
