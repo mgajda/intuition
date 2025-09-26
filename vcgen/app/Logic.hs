@@ -1,12 +1,11 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use fewer imports" #-}
+{-# HLINT ignore "Redundant bracket" #-}
 module Logic where
 
 import Prelude
 
-import System.Environment ( getArgs )
-import System.Exit        ( exitFailure )
-import Control.Monad      ( join, when )
+import Control.Monad      ( join )
 
 import Data.Map
 import qualified Data.Set as Set
@@ -15,52 +14,69 @@ import qualified GHC.Integer (gtInteger)
 
 
 import AbsTiny ( Expr(..), BExpr(..), Stmt(..), SpecEl(..), Ident(..), Decl(..), FormulaD (..), Formula (..), Binder(..), Invariant (..) )
-import LexTiny   ( Token, mkPosToken )
 
 
 import SkelTiny  ()
-import Foreign (free)
-import Data.Array.Base (bOOL_INDEX)
 import Data.Attoparsec.ByteString.Char8 (isDigit)
 import qualified Data.Map as Map
-import Control.Applicative (Alternative(empty))
-import System.Posix (emptySignalSet, rename)
-import System.FilePath (combine)
-import qualified Data.IntMap as IntMap
-import qualified Control.Applicative as Map
-import Prelude (print)
 
 
 
--- instance Show Formula where
---   show (FormulaDA f) = show f
---   show (FormulaI f1 f2) = "(" ++ show f1 ++ " ==> " ++ show f2 ++ ")"
---   show (FormulaQI binders bex f) = show binders ++ ". (" ++ show bex ++ " ==> " ++ show f ++ ")"
---   show (FormulaQS binders bex) = show binders ++ ". (" ++ show bex ++ ")"
---   show (FormulaAnd f1 f2) = "(" ++ show f1 ++ " ∧ " ++ show f2 ++ ")"
-
+-- | Formats a list of verification conditions (VCs) as a single string for display.
+-- Each string in the input list represents a VC, and the function combines them
+-- into a human-readable format, suitable for output or logging.
+--
+-- ==== Parameters
+-- * @vcs@ - A list of strings, each representing a verification condition.
+--
+-- ==== Returns
+-- A single string containing the formatted verification conditions.
 printVCs :: [String] -> String
 printVCs [] = ""
 printVCs (vc:rest) = vc ++ "\n" ++ printVCs rest
 
+-- | Retrieves the value associated with a given key from a map.
 mapGet :: (Ord k) => (Map k v) -> k -> v
 mapGet map arg = map ! arg
 
+-- | Inserts or updates a key-value pair in a map.
 mapSet :: (Ord k) => (Map k v) -> k -> v -> Map k v
 mapSet map arg val = insert arg val map
 
 
+-- | 'Loc' represents a location identifier as an integer value.
+--   It is used to denote addresses within a program or data structure.
 type Loc = Integer
+
+-- | 'Var' represents a variable as a 'String'.
 type Var = String
 
+
+-- | 'VEnv' represents a variable environment mapping variables ('Var') to their corresponding locations ('Loc').
+--   It is implemented as a 'Map' from 'Var' to 'Loc'.
 type VEnv = Map Var Loc
+
+-- | 'Proc' represents a procedure that takes an integer parameter and memory
+-- | representation (as 'Store') as input, and produces a new memory
+-- | representation as output.
 type Proc = Integer -> Store -> Store
+
+-- | 'PEnv' represents a procedure environment mapping procedure names
+-- | ('Var') to their corresponding procedures ('Proc').
 type PEnv = Map Var Proc
--- PAst is a procedure environment that is suitable for verification condition generation
--- it maps procedure names to syntactic representations of procedures
--- each procedure is represented as a tuple (param, preconditions, postconditions, body)
+
+-- | 'PAst' is a procedure environment that is suitable for verification
+-- | condition generation it maps procedure names to syntactic representations
+-- | of procedures each procedure is represented as a tuple 
+-- | (param, preconditions, postconditions, body)
 type PAst = Map Var (Var, [Formula], [Formula], Stmt) -- (param, pre, post, body)
+
+-- | 'Store' represents a memory store that maps locations ('Loc') to their
+-- | corresponding integer values.
 data Store = CStore {currMap :: Map Loc Integer, nextLoc :: Loc} deriving Show
+
+-- | 'FEnv' represents a set of logical formulas used for verification
+-- | conditions.
 type FEnv = Set.Set Formula
 
 {--
@@ -100,16 +116,12 @@ eE (EVar (Ident x)) rhoV sto = getVar rhoV sto x
 eB :: BExpr -> VEnv -> Store -> Bool
 
 eB (BAnd bexp0 bexp1) rhoV sto = (eB bexp0 rhoV sto) && (eB bexp1 rhoV sto)
-
 eB (BEq exp0 exp1) rhoV sto = (eE exp0 rhoV sto) == (eE exp1 rhoV sto)
 eB (BLeq exp0 exp1) rhoV sto = GHC.Integer.leInteger (eE exp0 rhoV sto) (eE exp1 rhoV sto)
 eB (BGt exp0 exp1) rhoV sto = GHC.Integer.gtInteger (eE exp0 rhoV sto) (eE exp1 rhoV sto)
-{--
-  BNot bexp  -> not $ eB bexp st
-  BLeq exp0 exp  -> GHC.Integer.leInteger (eE exp0 st) (eE exp st)
-  BTrue  -> True
-  BFalse -> False
-  --}
+eB (BNot bexp) rhoV sto = not $ eB bexp rhoV sto
+eB BTrue _ _ = True
+eB BFalse _ _ = False
 
 -- semantics of declarations
 iD :: Decl -> PEnv -> VEnv -> Store -> (PEnv, VEnv, Store)
@@ -174,7 +186,7 @@ iS (SBlock dec i) rhoP rhoV sto =
   let (rhoP', rhoV', sto') = iD dec rhoP rhoV sto in
     iS i rhoP' rhoV' sto'
 
--- Free variables in expressions
+-- | Free variables in expressions
 freeVars :: Expr -> Set.Set Var 
 freeVars (EPlus exp0 exp1) =
   Set.union (freeVars exp0) (freeVars exp1)
@@ -187,7 +199,7 @@ freeVars (EDiv exp0 exp1) =
 freeVars (ENum _) = Set.empty
 freeVars (EVar (Ident x)) = Set.singleton x
 
--- Free variables in boolean expressions
+-- | Free variables in boolean expressions
 freeVarsB :: BExpr -> Set.Set Var
 freeVarsB (BAnd bex0 bex1) =
   Set.union (freeVarsB bex0) (freeVarsB bex1)
@@ -202,12 +214,14 @@ freeVarsB (BNot bex) =
 freeVarsB BTrue = Set.empty
 freeVarsB BFalse = Set.empty
 
+-- | Free variables in disjunctive formulas
 freeVarsD :: FormulaD -> Set.Set Var
 freeVarsD (FormulaDOr bex df) =
   Set.union (freeVarsB bex) (freeVarsD df)
 freeVarsD (FormulaDB bex) =
   freeVarsB bex
 
+-- | Free variables in formulas
 freeVarsF :: Formula -> Set.Set Var 
 freeVarsF (FormulaDA df) = freeVarsD df
 freeVarsF (FormulaQI binders bex1 f2) =
@@ -221,6 +235,8 @@ freeVarsF (FormulaQS binders bex) =
                   Set.fromList [b | ExistsB (Ident b) <- binders] in
     Set.difference (freeVarsB bex) binderset
 freeVarsF (FormulaAnd f1 f2) =
+  Set.union (freeVarsF f1) (freeVarsF f2)
+freeVarsF (FormulaI f1 f2) =
   Set.union (freeVarsF f1) (freeVarsF f2)
 
 
