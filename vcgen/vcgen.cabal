@@ -27,7 +27,7 @@ synopsis:
     A sample verification conditions generator for a simple language of while programs with procedures called by value.
 
 -- A longer description of the package.
--- description:
+description: Generate proof obligations for intuitionistic prover.
 
 -- The license under which the package is released.
 license:            BSD-3-Clause
@@ -112,3 +112,5 @@ executable vcgen
     hs-source-dirs:   app/Tiny, app
 
     default-language:    Haskell2010
+
+default-language:    Haskell2010
