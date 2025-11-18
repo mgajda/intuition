@@ -1,0 +1,158 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use fewer imports" #-}
+{-# HLINT ignore "Redundant bracket" #-}
+module YulLogic where
+
+import Prelude
+import Control.Monad (join)
+import Data.Map
+import qualified Data.Set as Set
+import qualified Data.Map as Map
+
+-- Import Tiny's logic infrastructure
+import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..), Ident(..))
+
+-- We'll import Yul AST types once BNFC generates them
+-- import AbsYul
+
+{-|
+  This module provides verification condition generation for Yul programs.
+
+  Yul is Solidity's intermediate representation with:
+  - 256-bit integers (we model as Integer for now)
+  - Function calls for all operations
+  - Immutable variables (SSA-like)
+  - No implicit type conversions
+-}
+
+-- | Type environment for Yul variables
+type YulVarEnv = Map String YulType
+
+-- | Yul types (simplified)
+data YulType
+  = YulU256    -- 256-bit unsigned integer
+  | YulBool    -- Boolean
+  | YulU8      -- 8-bit unsigned
+  | YulU32     -- 32-bit unsigned
+  | YulU64     -- 64-bit unsigned
+  | YulU128    -- 128-bit unsigned
+  | YulS256    -- 256-bit signed integer
+  deriving (Show, Eq)
+
+-- | Storage model (simplified - maps storage slots to values)
+type YulStorage = Map Integer Integer
+
+-- | Memory model (simplified)
+type YulMemory = Map Integer Integer
+
+-- | Yul execution state
+data YulState = YulState
+  { yulStorage :: YulStorage
+  , yulMemory  :: YulMemory
+  , yulVarEnv  :: YulVarEnv
+  } deriving Show
+
+-- | Formula environment for verification conditions
+type YulFEnv = Set.Set Formula
+
+{-|
+  Built-in Yul functions fall into categories:
+
+  1. Arithmetic: add, sub, mul, div, mod, addmod, mulmod
+  2. Comparison: lt, gt, eq, iszero
+  3. Bitwise: and, or, xor, not, shl, shr, sar
+  4. EVM: sload, sstore, mload, mstore, keccak256, etc.
+  5. Special: assert (custom), invalid (assertion failure)
+-}
+
+-- | Translate Yul built-in function to Tiny expression
+-- For now, we handle the basic arithmetic and comparison ops
+translateYulBuiltin :: String -> [BExpr] -> BExpr
+translateYulBuiltin fname args = case (fname, args) of
+  -- Arithmetic comparisons
+  ("lt", [e1, e2])  -> toBExpr "LT" e1 e2
+  ("gt", [e1, e2])  -> toBExpr "GT" e1 e2
+  ("eq", [e1, e2])  -> toBExpr "EQ" e1 e2
+
+  -- Boolean operations
+  ("and", [e1, e2]) -> BAnd e1 e2
+  ("or", [e1, e2])  -> orBExpr e1 e2
+  ("not", [e1])     -> BNot e1
+  ("iszero", [e1])  -> BNot e1
+
+  -- For unhandled builtins, we'll create placeholder formulas
+  _ -> BTrue -- TODO: proper encoding
+  where
+    toBExpr op e1 e2 = BTrue -- Placeholder
+    orBExpr e1 e2 = BNot (BAnd (BNot e1) (BNot e2)) -- De Morgan's law
+
+{-|
+  Verification condition generation for Yul
+
+  Main differences from Tiny:
+  1. All operations are function calls
+  2. Variables are immutable (SSA form)
+  3. Need to handle EVM storage/memory
+  4. Assert statements are function calls to 'invalid'
+-}
+
+-- Example structure (will be filled in after BNFC generation):
+{-
+vcGenYul :: YulStmt -> YulState -> YulFEnv -> Formula -> (YulFEnv, Formula)
+vcGenYul stmt state fEnv post = case stmt of
+  -- Variable declaration: let x := expr
+  -- In SSA form, this creates new binding
+  YulVarDecl var expr ->
+    let pre = substF post var (translateYulExpr expr state) in
+      (fEnv, pre)
+
+  -- Assignment (reassignment is also let in Yul)
+  YulAssign var expr ->
+    let pre = substF post var (translateYulExpr expr state) in
+      (fEnv, pre)
+
+  -- If statement (no else in Yul!)
+  YulIf cond thenBlock ->
+    let (fEnv1, pre1) = vcGenYulBlock thenBlock state fEnv post in
+    let condFormula = translateYulBool cond state in
+    let pre = FormulaDA (FormulaDOr condFormula (FormulaDOr (BNot condFormula) (FormulaDB post))) in
+      (fEnv1, pre)
+
+  -- Function call statement (including assert!)
+  YulExprStmt (YulFunCall "invalid" []) ->
+    -- This is a failed assertion - should never be reachable
+    let vc = FormulaI post (FormulaDA (FormulaDB BFalse)) in
+      (Set.insert vc fEnv, post)
+
+  YulExprStmt (YulFunCall fname args) ->
+    -- Handle other function calls (sstore, mstore, etc.)
+    -- For now, assume they don't affect postcondition
+    (fEnv, post)
+
+  _ -> (fEnv, post) -- Default case
+-}
+
+-- Helper to substitute in formulas (reuse from Logic.hs)
+-- We'll need to convert between Yul and Tiny expression types
+
+-- | Print Yul verification conditions
+printYulVCs :: [String] -> String
+printYulVCs [] = ""
+printYulVCs (vc:rest) = vc ++ "\n" ++ printYulVCs rest
+
+-- | Example: Extract assertions from Yul code
+-- An assertion in Yul is typically:
+--   if iszero(condition) { invalid() }
+-- We want to extract 'condition' as a VC
+
+extractAssertions :: String -> [Formula]
+extractAssertions yulCode = [] -- TODO: implement after BNFC generation
+
+{-|
+  Integration strategy:
+
+  1. Parse Yul with BNFC-generated parser
+  2. Traverse AST to find 'invalid()' calls (failed assertions)
+  3. Generate VCs ensuring invalid() is never reached
+  4. Output to SMT-LIB or use with intuition prover
+-}

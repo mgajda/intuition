@@ -1,0 +1,87 @@
+{-
+Yul Grammar for BNFC
+
+This file contains a subset of the Yul intermediate representation grammar.
+Yul is Solidity's intermediate language used by the compiler.
+
+References:
+- https://docs.soliditylang.org/en/latest/yul.html
+- Based on Tiny.cf structure
+
+Supported subset:
+- Variable declarations and assignments
+- Literals (numeric)
+- Function calls (including assert, require)
+- If statements
+- Blocks
+- Basic arithmetic and boolean expressions
+-}
+
+comment "//" ;
+comment "/*" "*/" ;
+
+-- Top-level object structure (simplified)
+YulObject. YulProgram ::= "object" String "{" "code" YulBlock "}" ;
+
+-- Blocks contain statements
+YulBlockStmt. YulBlock ::= "{" [YulStmt] "}" ;
+
+terminator YulStmt "" ;
+
+-- Statements
+YulVarDecl.     YulStmt ::= "let" YulIdent ":=" YulExpr ;
+YulVarDeclTyped. YulStmt ::= "let" YulIdent ":" YulType ":=" YulExpr ;
+YulAssign.      YulStmt ::= YulIdent ":=" YulExpr ;
+YulIf.          YulStmt ::= "if" YulExpr YulBlock ;
+YulSwitch.      YulStmt ::= "switch" YulExpr [YulCase] ;
+YulFor.         YulStmt ::= "for" YulBlock YulExpr YulBlock YulBlock ;
+YulBreak.       YulStmt ::= "break" ;
+YulContinue.    YulStmt ::= "continue" ;
+YulLeave.       YulStmt ::= "leave" ;
+YulFunDef.      YulStmt ::= "function" YulIdent "(" [YulTypedIdent] ")" YulBlock ;
+YulFunDefRet.   YulStmt ::= "function" YulIdent "(" [YulTypedIdent] ")" "->" [YulTypedIdent] YulBlock ;
+YulExprStmt.    YulStmt ::= YulExpr ;
+YulBlockStmt2.  YulStmt ::= YulBlock ;
+
+separator nonempty YulTypedIdent "," ;
+YulTypedId.     YulTypedIdent ::= YulIdent ;
+YulTypedIdTyped. YulTypedIdent ::= YulIdent ":" YulType ;
+
+-- Switch cases
+separator YulCase "" ;
+YulCaseCase.    YulCase ::= "case" YulLiteral YulBlock ;
+YulCaseDefault. YulCase ::= "default" YulBlock ;
+
+-- Types
+YulTypeBool.    YulType ::= "bool" ;
+YulTypeU256.    YulType ::= "u256" ;
+YulTypeU8.      YulType ::= "u8" ;
+YulTypeU32.     YulType ::= "u32" ;
+YulTypeU64.     YulType ::= "u64" ;
+YulTypeU128.    YulType ::= "u128" ;
+YulTypeS256.    YulType ::= "s256" ;
+
+-- Expressions
+YulLitExpr.     YulExpr ::= YulLiteral ;
+YulIdentExpr.   YulExpr ::= YulIdent ;
+YulFunCall.     YulExpr ::= YulIdent "(" [YulExpr] ")" ;
+
+separator YulExpr "," ;
+
+-- Literals
+YulLitNum.      YulLiteral ::= Integer ;
+YulLitHex.      YulLiteral ::= HexNumber ;
+YulLitString.   YulLiteral ::= String ;
+YulLitBool.     YulLiteral ::= "true" ;
+YulLitFalse.    YulLiteral ::= "false" ;
+
+-- Hex numbers (EVM uses hex extensively)
+token HexNumber ({"0x"} (digit | ["abcdefABCDEF"])+) ;
+
+-- Identifiers
+YulId.          YulIdent ::= Ident ;
+
+-- Built-in functions will be handled as regular function calls
+-- Common ones: add, sub, mul, div, mod, lt, gt, eq, and, or, not
+-- EVM specific: sload, sstore, mload, mstore, keccak256, etc.
+-- Assertions: assert (custom), invalid (EVM opcode for failed assert)

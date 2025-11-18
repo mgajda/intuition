@@ -100,15 +100,38 @@ executable vcgen
                     unix >=2.7.2.2,
                     filepath >=1.4.2.1,
                     array >=0.5.4.0,
+                    -- sbv ==10.10,
 
     build-tool-depends: BNFC:bnfc >=2.9.6,
                     happy:happy >=1.19.12,
                     alex:alex >=3.2.7
 
-    other-modules:  Logic, AbsTiny, ParTiny, ErrM, PrintTiny, 
+    other-modules:  Logic, AbsTiny, ParTiny, PrintTiny,
                     SkelTiny, LexTiny,
+                    YulLogic, AbsYul, ParYul, PrintYul,
+                    SkelYul, LexYul,
 
     -- Directories containing source files.
-    hs-source-dirs:   app/Tiny, app
+    hs-source-dirs:   app/Tiny, app/Yul, app
 
+    default-language:    Haskell2010
+
+executable yulvcgen
+    import:           warnings
+    main-is:          YulVCgen.hs
+    build-depends:  base >=4.18.2.1,
+                    containers >=0.6.7,
+                    integer-gmp >=1.0.3.0,
+                    attoparsec >=0.13.2.5,
+                    unix >=2.7.2.2,
+                    filepath >=1.4.2.1,
+                    array >=0.5.4.0,
+                    -- sbv ==10.10,
+    build-tool-depends: BNFC:bnfc >=2.9.6,
+                    happy:happy >=1.19.12,
+                    alex:alex >=3.2.7
+    other-modules:  YulLogic, AbsYul, ParYul, PrintYul,
+                    SkelYul, LexYul,
+                    Logic, AbsTiny,
+    hs-source-dirs:   app/Yul, app, app/Tiny
     default-language:    Haskell2010
