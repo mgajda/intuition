@@ -1,0 +1,8 @@
+c K combinator: p => (q => p)
+c This is always SAT (tautology), so negation is UNSAT
+c We need to check: NOT(p => (q => p))
+c Which is: p AND NOT(q => p) = p AND q AND NOT p = UNSAT
+p cnf 2 3
+1 0
+2 0
+-1 0
