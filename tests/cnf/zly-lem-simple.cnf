@@ -1,0 +1,6 @@
+c Law of Excluded Middle: p | ~p
+c This is a tautology in classical logic
+c We check negation: NOT(p | ~p) = NOT p AND NOT(NOT p) = NOT p AND p = UNSAT in classical logic
+p cnf 1 2
+-1 0
+1 0

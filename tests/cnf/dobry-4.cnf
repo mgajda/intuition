@@ -1,0 +1,9 @@
+c Converted from tests/simple/dobry-4.p
+c Formula: 
+
+    (p => (q => r
+p cnf 3 4
+-3 -1 2 0
+3 1 0
+3 -2 0
+3 0
