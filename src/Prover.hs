@@ -224,7 +224,14 @@ prover :: Context -> FirstOrder Unsorted -> Measure_t -> Maybe Measure_t
 prover context (Connected  phi1 Equivalence phi2) measure =
   Just (MError "Unhandled equivalence in goal")
 prover context (Connected phi1 Implication phi2) measure =
-  prover (Context.insert (Aspn phi1 Fresh) context) phi2 measure
+  -- Normalize and decompose when adding to context:
+  -- - ~φ becomes φ => $false
+  -- - φ ∧ ψ is decomposed into φ and ψ (both added to context)
+  let normalized_context = case phi1 of
+                             Negated inner -> Context.insert (Aspn (Connected inner Implication (Atomic (Predicate bot_c []))) Fresh) context
+                             Connected psi1 Conjunction psi2 -> Context.insert (Aspn psi2 Fresh) (Context.insert (Aspn psi1 Fresh) context)
+                             _ -> Context.insert (Aspn phi1 Fresh) context
+  in prover normalized_context phi2 measure
 prover context (Connected phi1 ReversedImplication phi2) measure =
   Just (MError "Unhandled reversed implication in goal")
 prover context (Connected phi1 ExclusiveOr phi2) measure =
@@ -234,11 +241,20 @@ prover context (Connected phi1 NegatedDisjunction phi2) measure =
 prover context (Connected phi1 NegatedConjunction phi2) measure =
   Just (MError "Unhandled connective NAND in goal")
 prover context (Connected phi1 Disjunction phi2) measure =
-  Just (MError "Unhandled disjunction in goal")
+  -- To prove φ₁ ∨ φ₂, try to prove φ₁; if that fails, try φ₂
+  case prover context phi1 measure of
+    Just m -> Just m  -- Successfully proved phi1
+    Nothing -> prover context phi2 measure  -- Try phi2
 prover context (Connected phi1 Conjunction phi2) measure =
-  Just (MError "Unhandled conjunction in goal")
+  -- To prove φ₁ ∧ φ₂, prove both φ₁ and φ₂
+  case prover context phi1 measure of
+    Nothing -> Nothing
+    Just (MError s) -> Just (MError s)
+    Just measure1 -> prover context phi2 measure1
 prover context (Negated phi) measure =
-  Just (MError "Unhandled negation in goal")
+  -- To prove ¬φ, we prove φ → ⊥
+  -- This is equivalent to adding φ to the context and proving ⊥
+  prover context (Connected phi Implication (Atomic (Predicate bot_c []))) measure
 prover context (Atomic (Predicate p [])) measure =
       let ncontext = simplify_dpll context (Predicate p []) in
       if (is_atomic_in p context)

@@ -103,7 +103,7 @@ goal_role decl =
 -}
 presentproving :: Context -> [Maybe Measure_t] -> FirstOrder Unsorted -> [Maybe Measure_t]
 presentproving ctx lst fof =
-  (prover ctx fof (MInt 100)) : lst -- TODO: this should rather be some formula depth
+  (prover ctx fof (MInt 10000)) : lst -- TODO: this should rather be some formula depth
 
 {-|
   The 'proveformulaunits' tries to prove a parsed TPTP file.
