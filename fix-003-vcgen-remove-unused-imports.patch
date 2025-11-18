@@ -1,0 +1,19 @@
+--- a/vcgen/app/VCgen.hs
++++ b/vcgen/app/VCgen.hs
+@@ -4,11 +4,8 @@ module Main where
+
+ import Prelude
+
+-import System.Environment ( getArgs )
+ import System.Exit        ( exitFailure )
+-import Control.Monad      ( join, when )
+
+ import Data.Map
+ import qualified Data.Set as Set
+-import qualified GHC.Integer (leInteger)
+-import qualified GHC.Integer (gtInteger)
+
+ import ParTiny   ( myLexer, pStmt )
+-import PrintTiny ( Print, printTree )
++import PrintTiny ( printTree )
+ import AbsTiny ( BExpr(..), FormulaD (..), Formula (..))

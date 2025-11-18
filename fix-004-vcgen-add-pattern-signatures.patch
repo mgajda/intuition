@@ -1,0 +1,13 @@
+--- a/vcgen/app/Tiny/ErrM.hs
++++ b/vcgen/app/Tiny/ErrM.hs
+@@ -26,8 +26,11 @@ instance Monad Err where
+
+ -- the Error monad: like Maybe type with error msgs
+
++pattern Bad :: String -> Err a
+ pattern Bad msg = Left msg
++
++pattern Ok :: a -> Err a
+ pattern Ok  a   = Right a
+
+ instance MonadFail Err where

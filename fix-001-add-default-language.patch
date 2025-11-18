@@ -1,0 +1,16 @@
+--- a/intuition.cabal
++++ b/intuition.cabal
+@@ -19,6 +19,7 @@ library
+       Prover
+     hs-source-dirs: src
+     build-depends:    base >=4.11.3.0,
+                       tptp,
+                       sqlite-simple,
+@@ -26,6 +27,7 @@ library
+                       containers,
+                       text >=1.2.0.0 && <1.5,
+                       timeit
++    default-language: Haskell2010
+
+
+ executable intuition
