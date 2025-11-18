@@ -191,9 +191,10 @@ get_target (Quantified _ _ _) = Nothing
 
 {-|
   We fix the name 'bot_c' to represent the falsity sentence.
+  Note: TPTP standard uses $false as the falsity constant.
 -}
 bot_c :: Name Predicate
-bot_c = (Reserved . extended . pack)  "$bottom"
+bot_c = (Reserved . extended . pack)  "$false"
 
 
 
