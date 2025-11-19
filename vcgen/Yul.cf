@@ -31,7 +31,9 @@ terminator YulStmt "" ;
 -- Statements
 YulVarDecl.     YulStmt ::= "let" YulIdent ":=" YulExpr ;
 YulVarDeclTyped. YulStmt ::= "let" YulIdent ":" YulType ":=" YulExpr ;
+YulVarDeclMulti. YulStmt ::= "let" YulIdent "," [YulIdent] ":=" YulExpr ;
 YulAssign.      YulStmt ::= YulIdent ":=" YulExpr ;
+YulAssignMulti. YulStmt ::= YulIdent "," [YulIdent] ":=" YulExpr ;
 YulIf.          YulStmt ::= "if" YulExpr YulBlock ;
 YulSwitch.      YulStmt ::= "switch" YulExpr [YulCase] ;
 YulFor.         YulStmt ::= "for" YulBlock YulExpr YulBlock YulBlock ;
@@ -79,6 +81,7 @@ YulLitFalse.    YulLiteral ::= "false" ;
 token HexNumber ({"0x"} (digit | ["abcdefABCDEF"])+) ;
 
 -- Identifiers
+separator nonempty YulIdent "," ;
 YulId.          YulIdent ::= Ident ;
 
 -- Built-in functions will be handled as regular function calls

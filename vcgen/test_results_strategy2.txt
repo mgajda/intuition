@@ -1,0 +1,100 @@
+=== Strategy 2: Yul Parser Test Results ===
+Data: $(date +"%Y-%m-%d %H:%M")
+
+## Rozszerzenia Parsera
+
+1. ✅ Dodano wsparcie dla multi-value assignments:
+   - `let a, b := function(x, y)`
+   - `a, b := function(x, y)`
+
+2. ✅ Zaimplementowano ekstrakcję asercji z AST:
+   - Znajdowanie wywołań `invalid()`
+   - Śledzenie warunków guard (if statements)
+   - Rekursywne przeszukiwanie bloków i funkcji
+
+## Wyniki Testów
+
+### erc20_transfer.yul
+Found 6 assertion(s)
+
+Assertion 1:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "or")) [YulFunCall (YulId (Ident "gt")) [YulIdentExpr (YulId (Ident "result")),YulIdentExpr (YulId (Ident "a"))],YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "result")),YulIdentExpr (YulId (Ident "a"))]]]
+
+Assertion 2:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "or")) [YulFunCall (YulId (Ident "gt")) [YulIdentExpr (YulId (Ident "a")),YulIdentExpr (YulId (Ident "b"))],YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "a")),YulIdentExpr (YulId (Ident "b"))]]]
+
+Assertion 3:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "or")) [YulFunCall (YulId (Ident "gt")) [YulIdentExpr (YulId (Ident "sender_balance")),YulIdentExpr (YulId (Ident "amount"))],YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "sender_balance")),YulIdentExpr (YulId (Ident "amount"))]]]
+
+Assertion 4:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "old_total")),YulIdentExpr (YulId (Ident "new_total"))]]
+
+Assertion 5:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "s")),YulLitExpr (YulLitNum 100)]]
+
+Assertion 6:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "r")),YulLitExpr (YulLitNum 150)]]
+
+Done.
+
+### ownable.yul
+Found 3 assertion(s)
+
+Assertion 1:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "caller")),YulIdentExpr (YulId (Ident "owner"))]]
+
+Assertion 2:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulIdentExpr (YulId (Ident "new_owner"))]
+
+Assertion 3:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "finalOwner")),YulLitExpr (YulLitHex (HexNumber "0x2000"))]]
+
+Done.
+
+### reentrancy_guard.yul
+Found 4 assertion(s)
+
+Assertion 1:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "iszero")) [YulIdentExpr (YulId (Ident "status"))]]
+
+Assertion 2:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "status")),YulLitExpr (YulLitNum 1)]]
+
+Assertion 3:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "entered_status")),YulLitExpr (YulLitNum 1)]]
+
+Assertion 4:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "eq")) [YulIdentExpr (YulId (Ident "final_status")),YulLitExpr (YulLitNum 0)]]
+
+Done.
+
+### simple_assert.yul
+Found 3 assertion(s)
+
+Assertion 1:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "gt")) [YulIdentExpr (YulId (Ident "x")),YulLitExpr (YulLitHex (HexNumber "0xfffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffe"))]
+
+Assertion 2:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "gt")) [YulIdentExpr (YulId (Ident "result")),YulIdentExpr (YulId (Ident "x"))]]
+
+Assertion 3:
+  Location: if-guard
+  Condition: YulFunCall (YulId (Ident "iszero")) [YulFunCall (YulId (Ident "gt")) [YulIdentExpr (YulId (Ident "newValue")),YulLitExpr (YulLitNum 42)]]
+
+Done.
+

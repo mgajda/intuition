@@ -45,8 +45,18 @@ compute s =
             putStrLn $ printTree prog
 
             -- Extract assertions and generate VCs
-            let assertions = extractAssertions s
-            putStrLn $ "\nFound " ++ show (length assertions) ++ " assertions"
+            let assertions = extractAssertions prog
+            putStrLn $ "\nFound " ++ show (length assertions) ++ " assertion(s)"
+
+            -- Print assertion details
+            mapM_ printAssertion (zip [1..] assertions)
 
             -- TODO: Generate and check VCs
             putStrLn "\nDone."
+  where
+    printAssertion (n, ctx) = do
+      putStrLn $ "\nAssertion " ++ show n ++ ":"
+      putStrLn $ "  Location: " ++ assertLocation ctx
+      putStrLn $ "  Condition: " ++ case assertCondition ctx of
+        Nothing -> "unconditional"
+        Just expr -> show expr
