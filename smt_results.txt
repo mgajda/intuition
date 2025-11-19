@@ -1,0 +1,25 @@
+========================================
+SMT Solver Benchmarks
+Date: Tue Nov 18 14:30:34 CET 2025
+========================================
+
+Solvers tested:
+  - Z3 Z3 version 4.13.3 - 64 bit
+This is cvc5 version 1.1.2
+
+=== Valid Formulas (should be unsat) ===
+
+Test                         Z3 (ms)       CVC5 (ms)       Z3 Result     CVC5 Result
+----                        --------       ---------       ---------     -----------
+dobry-k.smt2                  10.400           7.600           unsat           unsat
+dobry-s.smt2                   7.900           4.600           unsat           unsat
+
+=== Invalid in Intuitionistic Logic (classically valid) ===
+
+Test                         Z3 (ms)       CVC5 (ms)       Z3 Result     CVC5 Result
+----                        --------       ---------       ---------     -----------
+zly-1.smt2                     7.800           4.900           unsat           unsat
+zly-2.smt2                     7.600           4.400           unsat           unsat
+zly-3.smt2                     8.000           4.700           unsat           unsat
+
+Note: SMT solvers use classical logic, so 'zly' problems will be proven valid (unsat)

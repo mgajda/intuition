@@ -49,19 +49,21 @@ compute s =
             putStrLn $ "\nFound " ++ show (length assertions) ++ " assertion(s)"
 
             -- Print assertion details with VCs and abstractions
-            mapM_ printAssertion (zip [1..] assertions)
+            mapM_ (printAssertion prog) (zip [1..] assertions)
 
             -- Statistics
-            let verifiable = length $ filter isVerifiableAssertion assertions
+            let verifiableByIntuition = length $ filter isVerifiableAssertion assertions
+            let verifiedByIntuitionWP = length $ filter (\ctx -> intuitionSuccess (verifyWithIntuitionWP prog ctx)) assertions
             let total = length assertions
             putStrLn $ "\n=== Verification Statistics ==="
             putStrLn $ "Total assertions: " ++ show total
-            putStrLn $ "Verifiable by Intuition Prover: " ++ show verifiable ++ " (" ++ show (verifiable * 100 `div` max 1 total) ++ "%)"
-            putStrLn $ "Require SMT solver: " ++ show (total - verifiable) ++ " (" ++ show ((total - verifiable) * 100 `div` max 1 total) ++ "%)"
+            putStrLn $ "Verifiable by Intuition alone (no WP): " ++ show verifiableByIntuition ++ " (" ++ show (verifiableByIntuition * 100 `div` max 1 total) ++ "%)"
+            putStrLn $ "✅ VERIFIED by Intuition + WP + Presburger: " ++ show verifiedByIntuitionWP ++ " (" ++ show (verifiedByIntuitionWP * 100 `div` max 1 total) ++ "%)"
+            putStrLn $ "Require full SMT solver: " ++ show (total - verifiedByIntuitionWP) ++ " (" ++ show ((total - verifiedByIntuitionWP) * 100 `div` max 1 total) ++ "%)"
 
             putStrLn "\nDone."
   where
-    printAssertion (n, ctx) = do
+    printAssertion prog (n, ctx) = do
       putStrLn $ "\n=== Assertion " ++ show n ++ " ==="
       putStrLn $ "Location: " ++ assertLocation ctx
       case assertCondition ctx of
@@ -97,11 +99,30 @@ compute s =
           when (not $ null $ nonLinearOps presburger) $ do
             putStrLn $ "  Non-linear ops: " ++ show (nonLinearOps presburger)
 
-          -- Generate SMT-LIB2 file for Z3
-          let smtContent = generateSMTLIB2 ctx
+          -- Intuition + Presburger verification (homegrown SMT)
+          let intuitionResult = verifyWithIntuitionWP prog ctx
+          putStrLn $ "\n🎯 Intuition + Presburger Verification:"
+          putStrLn $ "  WP Computed: " ++ show (wpComputed intuitionResult)
+          putStrLn $ "  Propositional Formula: " ++ propositionalFormula intuitionResult
+          putStrLn $ "  Intuition Verifiable: " ++ show (not . null $ propositionalFormula intuitionResult)
+          when (not $ null $ arithmeticAtoms intuitionResult) $ do
+            putStrLn $ "  Arithmetic Atoms:"
+            mapM_ (\(atomId, atomExpr) -> do
+              let atomValid = lookup atomId (atomCheckResults intuitionResult)
+              let status = case atomValid of
+                    Just True -> "✅"
+                    Just False -> "❌"
+                    Nothing -> "?"
+              putStrLn $ "    " ++ status ++ " " ++ atomId ++ " := " ++ atomExpr
+              ) (arithmeticAtoms intuitionResult)
+          putStrLn $ "  Result: " ++ verificationMessage intuitionResult
+          putStrLn $ "  VERIFIED: " ++ show (intuitionSuccess intuitionResult)
+
+          -- Generate SMT-LIB2 file for Z3 with WP
+          let smtContent = generateSMTLIB2_WP prog ctx
           let smtFilename = "vc_" ++ show n ++ ".smt2"
           writeFile smtFilename smtContent
-          putStrLn $ "\n📄 SMT-LIB2 file generated: " ++ smtFilename
+          putStrLn $ "\n📄 SMT-LIB2 file generated with WP: " ++ smtFilename
 
           -- Generate TPTP file
           let tptpContent = generateTPTPWithAxioms ctx

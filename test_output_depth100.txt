@@ -1,0 +1,27 @@
+=== Testing all dobry (valid) formulas ===
+✓ dobry-1.p
+✓ dobry-2.p
+✓ dobry-4.p
+✓ dobry-5.p
+✓ dobry-6.p
+✓ dobry-involved_id.p
+✓ dobry-k.p
+✓ dobry-piaty.p
+✓ dobry-remover.p
+✓ dobry-s.p
+
+=== Testing all zly (invalid) formulas ===
+✓ zly-1.p - correctly rejected
+✓ zly-2.p - correctly rejected
+✓ zly-3.p - correctly rejected
+✓ zly-4.p - correctly rejected
+✓ zly-5.p - correctly rejected
+
+=== Testing negation support ===
+✓ p => ~~p
+
+=== Testing disjunction support ===
+✓ p => (p | q)
+
+=== Testing classical tautologies via ~~translation ===
+✓ ~~(p | ~p) - Law of Excluded Middle

@@ -1,18 +1,16 @@
 ; Verification Condition for: if-guard
+; WP Computed: True
 ; Classification: Presburger
 ; Reason: Linear arithmetic with comparisons - Presburger decidable
 
 (set-logic QF_LIA)  ; Quantifier-Free Linear Integer Arithmetic
 
 ; Variable declarations
-(declare-const newValue Int)
 
 ; uint256 range constraints (0 <= var <= 2^256-1)
-(assert (and (>= newValue 0) (<= newValue 115792089237316195423570985008687907853269984665640564039457584007913129639935)))
 
-; Verification condition: prove that this is unsatisfiable
-; (i.e., the negation should be valid)
-(assert (not (> newValue 42)))
+; Verification condition
+(assert (and (not (not (> unknown 42))) 1))
 
 (check-sat)
 (get-model)

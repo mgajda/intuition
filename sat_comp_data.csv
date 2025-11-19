@@ -1,0 +1,7 @@
+test,kissat_ms,glucose_ms,cadical_ms,minisat_ms,picosat_ms
+dobry-4.cnf,103.30,103.10,103.00,103.00,103.10
+dobry-k.cnf,103.10,103.20,103.10,103.10,103.10
+dobry-k-simple.cnf,103.10,103.00,103.10,103.20,103.00
+dobry-s.cnf,102.90,103.10,103.10,103.30,103.10
+zly-1.cnf,103.00,103.10,103.20,103.20,103.10
+zly-lem-simple.cnf,103.00,103.00,102.90,103.10,102.90

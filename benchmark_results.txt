@@ -1,0 +1,39 @@
+========================================
+Intuition Prover Timing Benchmarks
+Date: Tue Nov 18 17:52:08 CET 2025
+========================================
+
+=== Valid Formulas (dobry-*.p) ===
+Testing: dobry-1.p
+  Average time: 1.500ms (over 10 runs)
+Testing: dobry-2.p
+  Average time: 1.600ms (over 10 runs)
+Testing: dobry-4.p
+  Average time: 8.100ms (over 10 runs)
+Testing: dobry-5.p
+  Average time: 1.700ms (over 10 runs)
+Testing: dobry-6.p
+  Average time: 1.800ms (over 10 runs)
+Testing: dobry-involved_id.p
+  Average time: 1.700ms (over 10 runs)
+Testing: dobry-k.p
+  Average time: 1.600ms (over 10 runs)
+Testing: dobry-piaty.p
+  Average time: 2.000ms (over 10 runs)
+Testing: dobry-remover.p
+  Average time: 1.900ms (over 10 runs)
+Testing: dobry-s.p
+  Average time: 1.800ms (over 10 runs)
+
+=== Invalid Formulas (zly-*.p) ===
+Testing: zly-1.p
+  Average time: 1.800ms (over 10 runs)
+Testing: zly-2.p
+  Average time: 1.200ms (over 10 runs)
+Testing: zly-3.p
+  Average time: 1.600ms (over 10 runs)
+Testing: zly-4.p
+  Average time: 1.400ms (over 10 runs)
+Testing: zly-5.p
+  Average time: 1.400ms (over 10 runs)
+

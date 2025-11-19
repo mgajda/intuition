@@ -1,0 +1,56 @@
+=== Presburger Arithmetic Verification Benchmark ===
+Date: Wed Nov 19 12:23:27 CET 2025
+
+Using: Z3 version 4.13.3 - 64 bit
+
+=== Generating SMT-LIB2 files ===
+Processing erc20_transfer.yul...
+Processing ownable.yul...
+Processing reentrancy_guard.yul...
+Processing simple_assert.yul...
+
+Generated 6 verification conditions
+
+=== Testing vc_1.smt2 ===
+  Type: ✅ Presburger (linear arithmetic)
+  Reason: Linear arithmetic with comparisons - Presburger decidable
+  Z3 Result: ❌ FALSIFIABLE (counterexample exists)
+
+=== Testing vc_2.smt2 ===
+  Type: ✅ Presburger (linear arithmetic)
+  Reason: Linear arithmetic with comparisons - Presburger decidable
+  Z3 Result: ❌ FALSIFIABLE (counterexample exists)
+
+=== Testing vc_3.smt2 ===
+  Type: ✅ Presburger (linear arithmetic)
+  Reason: Linear arithmetic with comparisons - Presburger decidable
+  Z3 Result: ❌ FALSIFIABLE (counterexample exists)
+
+=== Testing vc_4.smt2 ===
+  Type: ✅ Presburger (linear arithmetic)
+  Reason: Linear arithmetic with comparisons - Presburger decidable
+  Z3 Result: ❌ FALSIFIABLE (counterexample exists)
+
+=== Testing vc_5.smt2 ===
+  Type: ✅ Presburger (linear arithmetic)
+  Reason: Linear arithmetic with comparisons - Presburger decidable
+  Z3 Result: ❌ FALSIFIABLE (counterexample exists)
+
+=== Testing vc_6.smt2 ===
+  Type: ✅ Presburger (linear arithmetic)
+  Reason: Linear arithmetic with comparisons - Presburger decidable
+  Z3 Result: ❌ FALSIFIABLE (counterexample exists)
+
+=== Summary ===
+Total VCs: 6
+
+By Classification:
+  Presburger-decidable: 6 (100%)
+  Non-Presburger: 0 (0%)
+
+Verification Results:
+  ✅ Verified: 0
+  ❌ Falsifiable: 6
+  ❓ Unknown/Error: 0
+
+❌ No proofs found

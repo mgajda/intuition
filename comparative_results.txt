@@ -1,0 +1,41 @@
+========================================
+Comparative Theorem Prover Benchmarks
+Date: Tue Nov 18 13:53:51 CET 2025
+========================================
+
+Provers tested:
+  - Intuition: Custom intuitionistic logic prover
+  - E-prover E 3.2.5 Puttabong Moondrop (69a471a3f67fbd0e9686e497131291f452c2176c): Classical FOL theorem prover
+
+=== Valid Formulas (dobry-*.p) ===
+
+Test                       Intuition (ms)   E-prover (ms)     Int. Result        E Result    Speedup
+----                       --------------  --------------     -----------        --------    -------
+dobry-1.p                           1.000         103.000          PROVED          PROVED    103.00x
+dobry-2.p                           1.000         103.600          PROVED          PROVED    103.60x
+dobry-4.p                           1.200         102.800          PROVED          PROVED     85.66x
+dobry-5.p                           1.000         102.800          PROVED          PROVED    102.80x
+dobry-6.p                           1.000         103.200          PROVED          PROVED    103.20x
+dobry-involved_id.p                 1.200         103.000          PROVED          PROVED     85.83x
+dobry-k.p                           1.000         102.400          PROVED          PROVED    102.40x
+dobry-piaty.p                       1.200         102.600          PROVED          PROVED     85.50x
+dobry-remover.p                     1.200         102.800          PROVED          PROVED     85.66x
+dobry-s.p                           1.200         103.000          PROVED          PROVED     85.83x
+
+=== Invalid Formulas (zly-*.p) ===
+
+Test                       Intuition (ms)   E-prover (ms)     Int. Result        E Result    Speedup
+----                       --------------  --------------     -----------        --------    -------
+zly-1.p                             1.000         103.200       DISPROVED          PROVED    103.20x
+zly-2.p                             1.000         103.000       DISPROVED          PROVED    103.00x
+zly-3.p                             1.000         102.800       DISPROVED          PROVED    102.80x
+zly-4.p                             1.400         102.400       DISPROVED          PROVED     73.14x
+zly-5.p                             1.200         102.400           ERROR          PROVED     85.33x
+
+Notes:
+- Intuition is an intuitionistic logic prover
+- E-prover is a classical first-order logic theorem prover
+- Problems marked 'dobry' should be theorems in intuitionistic logic
+- Problems marked 'zly' should NOT be theorems in intuitionistic logic
+- E-prover may prove some 'zly' problems (classically valid but not intuitionistically)
+

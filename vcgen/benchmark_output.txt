@@ -1,0 +1,8 @@
+════════════════════════════════════════════════════════════
+Verification Benchmark: Intuition vs SMTChecker
+Time limit: 10 seconds per assertion
+════════════════════════════════════════════════════════════
+
+═══ Part 1: Intuition Prover on Propositional Abstractions ═══
+
+Ownable auth                             [0;31m✗ FAILED[0m (.006153607s)

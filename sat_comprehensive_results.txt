@@ -1,0 +1,23 @@
+========================================
+Comprehensive SAT Solver Benchmarks
+Date: Tue Nov 18 17:05:29 CET 2025
+========================================
+
+SAT Solvers tested:
+  - Kissat 4.0.4 (SAT Competition 2024 winner)
+  - Glucose 4.2.1
+  - CaDiCaL 2.1.3
+  - MiniSat (classic reference solver)
+  - PicoSAT 965
+
+Test                             Kissat(ms)  Glucose(ms)  CaDiCaL(ms)  MiniSat(ms)  PicoSAT(ms)
+----                            -----------  -----------  -----------  -----------  -----------
+dobry-4.cnf                          103.30       103.10       103.00       103.00       103.10
+dobry-k.cnf                          103.10       103.20       103.10       103.10       103.10
+dobry-k-simple.cnf                   103.10       103.00       103.10       103.20       103.00
+dobry-s.cnf                          102.90       103.10       103.10       103.30       103.10
+zly-1.cnf                            103.00       103.10       103.20       103.20       103.10
+zly-lem-simple.cnf                   103.00       103.00       102.90       103.10       102.90
+
+Note: All times in milliseconds, averaged over 10 runs
+These are propositional SAT problems derived from intuitionistic logic test cases

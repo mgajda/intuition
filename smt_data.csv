@@ -1,0 +1,6 @@
+test,z3_ms,cvc5_ms,z3_result,cvc5_result
+dobry-k.smt2,10.400,7.600,unsat,unsat
+dobry-s.smt2,7.900,4.600,unsat,unsat
+zly-1.smt2,7.800,4.900,unsat,unsat
+zly-2.smt2,7.600,4.400,unsat,unsat
+zly-3.smt2,8.000,4.700,unsat,unsat
