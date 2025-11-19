@@ -89,11 +89,25 @@ compute s =
             putStrLn $ "\nTheory Axioms Needed: " ++ show (length axioms)
             mapM_ (\ax -> putStrLn $ "  - " ++ axiomName ax ++ ": " ++ axiomDescription ax) axioms
 
+          -- Presburger classification
+          let presburger = classifyPresburger expr
+          putStrLn $ "\nPresburger Arithmetic Classification:"
+          putStrLn $ "  Is Presburger: " ++ show (isPresburger presburger)
+          putStrLn $ "  Reason: " ++ reason presburger
+          when (not $ null $ nonLinearOps presburger) $ do
+            putStrLn $ "  Non-linear ops: " ++ show (nonLinearOps presburger)
+
+          -- Generate SMT-LIB2 file for Z3
+          let smtContent = generateSMTLIB2 ctx
+          let smtFilename = "vc_" ++ show n ++ ".smt2"
+          writeFile smtFilename smtContent
+          putStrLn $ "\n📄 SMT-LIB2 file generated: " ++ smtFilename
+
           -- Generate TPTP file
           let tptpContent = generateTPTPWithAxioms ctx
           let filename = "vc_" ++ show n ++ ".p"
           writeFile filename tptpContent
-          putStrLn $ "\n📄 TPTP file generated: " ++ filename
+          putStrLn $ "📄 TPTP file generated: " ++ filename
 
     isVerifiableAssertion ctx = case assertCondition ctx of
       Nothing -> False

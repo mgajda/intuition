@@ -9,7 +9,8 @@ import Control.Monad (join)
 import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import Data.List (intercalate)
+import Data.List (intercalate, stripPrefix)
+import Numeric (readHex)
 
 -- Import Tiny's logic infrastructure
 import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..))
@@ -412,12 +413,190 @@ generateTPTPWithAxioms ctx = case assertCondition ctx of
       YulLitExpr (YulLitNum n) -> show n
       _ -> "unknown"
 
+-- =============================================================================
+-- Presburger Arithmetic Decision Procedure
+-- =============================================================================
+
+{-|
+  Presburger arithmetic is decidable and includes:
+  - Linear integer arithmetic: +, - (but not * or / of variables)
+  - Comparisons: <, >, ≤, ≥, =, ≠
+  - Boolean logic: ∧, ∨, ¬
+
+  For Yul/EVM:
+  - uint256 arithmetic is modulo 2^256
+  - Most overflow/underflow checks are Presburger-decidable
+  - Operations like add(x, const), sub(x, const) are linear
+  - Comparisons gt(x, y), lt(x, y), eq(x, y) are supported
+-}
+
+data PresburgerClassification = PresburgerClassification
+  { isPresburger :: Bool
+  , reason :: String
+  , nonLinearOps :: [String]  -- Operations that break Presburger
+  } deriving Show
+
+-- | Check if a Yul expression is in Presburger arithmetic
+classifyPresburger :: YulExpr -> PresburgerClassification
+classifyPresburger expr =
+  let (isP, nonLinOps) = checkExpr expr
+      reasonText = if isP
+                   then "Linear arithmetic with comparisons - Presburger decidable"
+                   else "Contains non-linear operations: " ++ show nonLinOps
+  in PresburgerClassification isP reasonText nonLinOps
+  where
+    checkExpr :: YulExpr -> (Bool, [String])
+    checkExpr e = case e of
+      YulLitExpr _ -> (True, [])
+      YulIdentExpr _ -> (True, [])
+
+      -- Linear operations: add, sub (when used linearly)
+      YulFunCall (YulId (Ident "add")) [a, b] ->
+        checkBinary "add" a b
+      YulFunCall (YulId (Ident "sub")) [a, b] ->
+        checkBinary "sub" a b
+
+      -- Comparisons: always OK for Presburger
+      YulFunCall (YulId (Ident "gt")) [a, b] ->
+        checkBinary "gt" a b
+      YulFunCall (YulId (Ident "lt")) [a, b] ->
+        checkBinary "lt" a b
+      YulFunCall (YulId (Ident "eq")) [a, b] ->
+        checkBinary "eq" a b
+
+      -- Boolean: always OK
+      YulFunCall (YulId (Ident "iszero")) [a] ->
+        checkExpr a
+      YulFunCall (YulId (Ident "and")) [a, b] ->
+        checkBinary "and" a b
+      YulFunCall (YulId (Ident "or")) [a, b] ->
+        checkBinary "or" a b
+      YulFunCall (YulId (Ident "not")) [a] ->
+        checkExpr a
+
+      -- Non-linear: mul, div, mod
+      YulFunCall (YulId (Ident fname)) args
+        | fname `elem` ["mul", "div", "mod", "mulmod", "addmod", "exp", "shl", "shr"] ->
+            let childResults = Prelude.map checkExpr args
+                allNonLin = concat (Prelude.map snd childResults)
+            in (False, fname : allNonLin)
+
+      -- Unknown operations: assume non-linear
+      YulFunCall (YulId (Ident fname)) args ->
+        let childResults = Prelude.map checkExpr args
+            anyNonLin = any (not . fst) childResults
+            allNonLin = concat (Prelude.map snd childResults)
+        in if anyNonLin
+           then (False, fname : allNonLin)
+           else (True, [])
+
+      _ -> (False, ["unknown"])
+
+    checkBinary :: String -> YulExpr -> YulExpr -> (Bool, [String])
+    checkBinary _op a b =
+      let (aOk, aNonLin) = checkExpr a
+          (bOk, bNonLin) = checkExpr b
+      in (aOk && bOk, aNonLin ++ bNonLin)
+
+-- | Generate SMT-LIB2 format for Presburger arithmetic
+-- Uses LIA (Linear Integer Arithmetic) theory
+generateSMTLIB2 :: AssertionContext -> String
+generateSMTLIB2 ctx = case assertCondition ctx of
+  Nothing -> "; Unconditional failure - no VC to generate"
+  Just expr ->
+    let classification = classifyPresburger expr
+        variables = collectVariables expr
+        varDecls = Prelude.map (\v -> "(declare-const " ++ v ++ " Int)") variables
+        vc = exprToSMT expr
+        uint256Max = show ((2 :: Integer) ^ (256 :: Integer) - 1)  -- 2^256 - 1
+        rangeConstraints = Prelude.map (\v -> "(assert (and (>= " ++ v ++ " 0) (<= " ++ v ++ " " ++ uint256Max ++ ")))") variables
+    in unlines $
+        ["; Verification Condition for: " ++ assertLocation ctx
+        , "; Classification: " ++ (if isPresburger classification then "Presburger" else "Non-Presburger")
+        , "; Reason: " ++ reason classification
+        , ""
+        , "(set-logic QF_LIA)  ; Quantifier-Free Linear Integer Arithmetic"
+        , ""
+        , "; Variable declarations"
+        ] ++ varDecls ++
+        [""
+        , "; uint256 range constraints (0 <= var <= 2^256-1)"
+        ] ++ rangeConstraints ++
+        [""
+        , "; Verification condition: prove that this is unsatisfiable"
+        , "; (i.e., the negation should be valid)"
+        , "(assert " ++ vc ++ ")"
+        , ""
+        , "(check-sat)"
+        , "(get-model)"
+        ]
+  where
+    collectVariables :: YulExpr -> [String]
+    collectVariables e = Set.toList $ collectVars e Set.empty
+      where
+        collectVars :: YulExpr -> Set.Set String -> Set.Set String
+        collectVars expr vars = case expr of
+          YulIdentExpr (YulId (Ident name)) -> Set.insert name vars
+          YulFunCall _ args -> foldr collectVars vars args
+          _ -> vars
+
+    exprToSMT :: YulExpr -> String
+    exprToSMT e = case e of
+      YulLitExpr (YulLitNum n) -> show n
+      YulLitExpr (YulLitHex (HexNumber h)) ->
+        -- Convert hex to decimal for SMT-LIB
+        case stripPrefix "0x" h of
+          Just hexStr -> case readHex hexStr :: [(Integer, String)] of
+            [(n, "")] -> show n
+            _ -> h
+          Nothing -> h
+      YulIdentExpr (YulId (Ident name)) -> name
+
+      -- Arithmetic
+      YulFunCall (YulId (Ident "add")) [a, b] ->
+        "(+ " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+      YulFunCall (YulId (Ident "sub")) [a, b] ->
+        "(- " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+
+      -- Comparisons
+      YulFunCall (YulId (Ident "gt")) [a, b] ->
+        "(> " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+      YulFunCall (YulId (Ident "lt")) [a, b] ->
+        "(< " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+      YulFunCall (YulId (Ident "eq")) [a, b] ->
+        "(= " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+
+      -- Boolean
+      YulFunCall (YulId (Ident "iszero")) [a] ->
+        -- iszero(x) = NOT(x) for boolean expressions, or (= x 0) for integer expressions
+        -- Check if subexpression is a comparison (returns boolean)
+        case a of
+          YulFunCall (YulId (Ident fname)) _
+            | fname `elem` ["gt", "lt", "eq", "and", "or", "not", "iszero"] ->
+                "(not " ++ exprToSMT a ++ ")"
+          _ -> "(= " ++ exprToSMT a ++ " 0)"
+      YulFunCall (YulId (Ident "and")) [a, b] ->
+        "(and " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+      YulFunCall (YulId (Ident "or")) [a, b] ->
+        "(or " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+      YulFunCall (YulId (Ident "not")) [a] ->
+        "(not " ++ exprToSMT a ++ ")"
+
+      -- Non-linear (best effort - may not be correct)
+      YulFunCall (YulId (Ident "mul")) [a, b] ->
+        "(* " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+      YulFunCall (YulId (Ident "div")) [a, b] ->
+        "(div " ++ exprToSMT a ++ " " ++ exprToSMT b ++ ")"
+
+      _ -> "unknown"
+
 {-|
   Integration strategy:
 
   1. Parse Yul with BNFC-generated parser
   2. Traverse AST to find 'invalid()' calls (failed assertions)
   3. Generate VCs ensuring invalid() is never reached
-  4. **NEW**: Add theory axioms for operations used in VC
-  5. Output to TPTP with axioms for intuition prover
+  4. **Theory Axioms**: Add theory axioms for operations (Branch: theory-axioms)
+  5. **Presburger**: Decision procedure for linear arithmetic (Branch: presburger-solver)
+  6. **Z3 Integration**: Full bitvector support (Branch: z3-integration)
 -}
