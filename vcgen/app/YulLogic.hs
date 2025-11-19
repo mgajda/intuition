@@ -9,7 +9,8 @@ import Control.Monad (join)
 import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import Data.List (intercalate)
+import Data.List (intercalate, stripPrefix)
+import Numeric (readHex)
 
 -- Import Tiny's logic infrastructure
 import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..))
@@ -412,12 +413,196 @@ generateTPTPWithAxioms ctx = case assertCondition ctx of
       YulLitExpr (YulLitNum n) -> show n
       _ -> "unknown"
 
+-- =============================================================================
+-- Weakest Precondition Calculus for Yul
+-- =============================================================================
+
+{-|
+  Weakest Precondition (WP) calculus computes the precondition needed
+  for a postcondition to hold after executing a statement.
+
+  Key rules:
+  - wp(x := e, φ) = φ[e/x]  (substitute e for x)
+  - wp(S1; S2, φ) = wp(S1, wp(S2, φ))
+  - wp(if cond { invalid() }, φ) = ¬cond ∧ φ
+  - wp(if cond { S }, φ) = (cond → wp(S, φ)) ∧ (¬cond → φ)
+
+  This gives us VCs with proper data flow!
+-}
+
+type Substitution = Map.Map String YulExpr
+
+-- | Compute weakest precondition for a Yul statement
+weakestPrecondition :: YulStmt -> YulExpr -> YulExpr
+weakestPrecondition stmt postcond = case stmt of
+  -- Assignment: wp(x := e, φ) = φ[e/x]
+  YulAssign (YulId (Ident var)) expr ->
+    substituteInExpr var expr postcond
+
+  -- Variable declaration with init: wp(let x := e, φ) = φ[e/x]
+  YulVarDecl (YulId (Ident var)) expr ->
+    substituteInExpr var expr postcond
+
+  -- If with invalid: wp(if cond { invalid() }, φ) = ¬cond ∧ φ
+  YulIf cond (YulBlockStmt [YulExprStmt (YulFunCall (YulId (Ident "invalid")) [])]) ->
+    -- The invalid should NOT execute, so ¬cond must hold
+    andExpr (notExpr cond) postcond
+
+  -- If with body: wp(if cond { S }, φ) = (cond → wp(S, φ)) ∧ (¬cond → φ)
+  YulIf cond (YulBlockStmt stmts) ->
+    let wpBody = weakestPreconditionBlock stmts postcond
+        thenPart = impliesExpr cond wpBody
+        elsePart = impliesExpr (notExpr cond) postcond
+    in andExpr thenPart elsePart
+
+  -- Block statement: unwrap and process
+  YulBlockStmt2 (YulBlockStmt stmts) ->
+    weakestPreconditionBlock stmts postcond
+
+  -- Expression statement (like function call): assume no effect on postcondition
+  YulExprStmt _ -> postcond
+
+  -- Function definition: skip (handle separately)
+  YulFunDef {} -> postcond
+  YulFunDefRet {} -> postcond
+
+  _ -> postcond
+
+-- | WP for a sequence of statements (process in reverse)
+weakestPreconditionBlock :: [YulStmt] -> YulExpr -> YulExpr
+weakestPreconditionBlock stmts postcond =
+  foldr weakestPrecondition postcond (reverse stmts)
+
+-- | Substitute expression for variable in another expression
+substituteInExpr :: String -> YulExpr -> YulExpr -> YulExpr
+substituteInExpr var replacement expr = case expr of
+  YulIdentExpr (YulId (Ident name))
+    | name == var -> replacement
+    | otherwise -> expr
+
+  YulFunCall fname args ->
+    YulFunCall fname (Prelude.map (substituteInExpr var replacement) args)
+
+  YulLitExpr _ -> expr
+
+  _ -> expr
+
+-- Helper constructors for logical operations
+notExpr :: YulExpr -> YulExpr
+notExpr e = YulFunCall (YulId (Ident "iszero")) [e]
+
+andExpr :: YulExpr -> YulExpr -> YulExpr
+andExpr a b = YulFunCall (YulId (Ident "and")) [a, b]
+
+impliesExpr :: YulExpr -> YulExpr -> YulExpr
+impliesExpr a b = YulFunCall (YulId (Ident "or")) [notExpr a, b]  -- a → b ≡ ¬a ∨ b
+
+-- =============================================================================
+-- Z3 Integration with Bitvector Theory
+-- =============================================================================
+
+{-|
+  Now with WP calculus, we can generate proper VCs with data flow,
+  then encode them in SMT-LIB with bitvector theory for uint256 semantics.
+-}
+
+-- | Generate SMT-LIB2 with bitvector theory for Z3
+generateSMTLIB2_BV :: AssertionContext -> String
+generateSMTLIB2_BV ctx = case assertCondition ctx of
+  Nothing -> "; Unconditional failure - no VC to generate"
+  Just expr ->
+    let variables = collectVarsBV expr
+        varDecls = Prelude.map (\v -> "(declare-const " ++ v ++ " (_ BitVec 256))") variables
+        vc = exprToSMT_BV expr
+    in unlines $
+        ["; Verification Condition for: " ++ assertLocation ctx
+        , "; Using bitvector theory (QF_BV) for uint256 semantics"
+        , ""
+        , "(set-logic QF_BV)"
+        , ""
+        , "; Variable declarations (256-bit bitvectors)"
+        ] ++ varDecls ++
+        [""
+        , "; Verification condition"
+        , "(assert " ++ vc ++ ")"
+        , ""
+        , "(check-sat)"
+        , "(get-model)"
+        ]
+  where
+    collectVarsBV :: YulExpr -> [String]
+    collectVarsBV e = Set.toList $ collectVars e Set.empty
+      where
+        collectVars :: YulExpr -> Set.Set String -> Set.Set String
+        collectVars expr vars = case expr of
+          YulIdentExpr (YulId (Ident name)) -> Set.insert name vars
+          YulFunCall _ args -> foldr collectVars vars args
+          _ -> vars
+
+    exprToSMT_BV :: YulExpr -> String
+    exprToSMT_BV e = case e of
+      YulLitExpr (YulLitNum n) ->
+        "(_ bv" ++ show n ++ " 256)"
+      YulLitExpr (YulLitHex (HexNumber h)) ->
+        case stripPrefix "0x" h of
+          Just hexStr -> case readHex hexStr :: [(Integer, String)] of
+            [(n, "")] -> "(_ bv" ++ show n ++ " 256)"
+            _ -> "(_ bv0 256)"
+          Nothing -> "(_ bv0 256)"
+      YulIdentExpr (YulId (Ident name)) -> name
+
+      -- Arithmetic (with wraparound)
+      YulFunCall (YulId (Ident "add")) [a, b] ->
+        "(bvadd " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "sub")) [a, b] ->
+        "(bvsub " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "mul")) [a, b] ->
+        "(bvmul " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "div")) [a, b] ->
+        "(bvudiv " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "mod")) [a, b] ->
+        "(bvurem " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+
+      -- Comparisons (unsigned)
+      YulFunCall (YulId (Ident "gt")) [a, b] ->
+        "(bvugt " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "lt")) [a, b] ->
+        "(bvult " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "eq")) [a, b] ->
+        "(= " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+
+      -- Boolean operations
+      YulFunCall (YulId (Ident "iszero")) [a] ->
+        case a of
+          YulFunCall (YulId (Ident fname)) _
+            | fname `elem` ["gt", "lt", "eq", "and", "or", "not", "iszero"] ->
+                "(not " ++ exprToSMT_BV a ++ ")"
+          _ -> "(= " ++ exprToSMT_BV a ++ " (_ bv0 256))"
+      YulFunCall (YulId (Ident "and")) [a, b] ->
+        -- Check if boolean and or bitwise and
+        case (a, b) of
+          (YulFunCall (YulId (Ident fa)) _, YulFunCall (YulId (Ident fb)) _)
+            | fa `elem` ["gt", "lt", "eq", "iszero"] && fb `elem` ["gt", "lt", "eq", "iszero"] ->
+                "(and " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+          _ -> "(bvand " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "or")) [a, b] ->
+        case (a, b) of
+          (YulFunCall (YulId (Ident fa)) _, YulFunCall (YulId (Ident fb)) _)
+            | fa `elem` ["gt", "lt", "eq", "iszero"] && fb `elem` ["gt", "lt", "eq", "iszero"] ->
+                "(or " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+          _ -> "(bvor " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      YulFunCall (YulId (Ident "not")) [a] ->
+        "(bvnot " ++ exprToSMT_BV a ++ ")"
+
+      _ -> "(_ bv0 256)"
+
 {-|
   Integration strategy:
 
   1. Parse Yul with BNFC-generated parser
   2. Traverse AST to find 'invalid()' calls (failed assertions)
   3. Generate VCs ensuring invalid() is never reached
-  4. **NEW**: Add theory axioms for operations used in VC
-  5. Output to TPTP with axioms for intuition prover
+  4. **Theory Axioms** (Branch 1): FOL axioms - failed
+  5. **Presburger** (Branch 2): QF_LIA - right logic, needs data flow
+  6. **Z3 Bitvectors** (Branch 3): QF_BV - full uint256 semantics
 -}
