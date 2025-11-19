@@ -9,7 +9,8 @@ import Control.Monad (join)
 import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
-import Data.List (intercalate)
+import Data.List (intercalate, stripPrefix)
+import Numeric (readHex)
 
 -- Import Tiny's logic infrastructure
 import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..))
@@ -410,6 +411,13 @@ generateTPTPWithAxioms ctx = case assertCondition ctx of
         "(" ++ exprToTPTP a ++ " | " ++ exprToTPTP b ++ ")"
       YulIdentExpr (YulId (Ident name)) -> name
       YulLitExpr (YulLitNum n) -> show n
+      YulLitExpr (YulLitHex (HexNumber h)) ->
+        -- Convert hex to decimal for TPTP
+        case stripPrefix "0x" h of
+          Just hexStr -> case readHex hexStr :: [(Integer, String)] of
+            [(n, "")] -> show n
+            _ -> h
+          Nothing -> h
       _ -> "unknown"
 
 {-|
