@@ -8,6 +8,9 @@ fof(trichotomy, axiom, ![X,Y]: (gt(X,Y) | eq(X,Y) | gt(Y,X))). % Trichotomy: for
 fof(eq_reflexive, axiom, ![X]: eq(X,X)). % Reflexivity: X = X
 fof(eq_symmetric, axiom, ![X,Y]: (eq(X,Y) => eq(Y,X))). % Symmetry: if X = Y then Y = X
 fof(eq_transitive, axiom, ![X,Y,Z]: ((eq(X,Y) & eq(Y,Z)) => eq(X,Z))). % Transitivity of equality
+fof(double_negation, axiom, ![P]: (iszero(iszero(P)) <=> P)). % Double negation elimination
+fof(demorgan_and, axiom, ![P,Q]: (iszero(and(P,Q)) <=> (iszero(P) | iszero(Q)))). % De Morgan's law for AND
+fof(demorgan_or, axiom, ![P,Q]: (iszero(or(P,Q)) <=> (iszero(P) & iszero(Q)))). % De Morgan's law for OR
 
 % Verification Condition:
-fof(vc, conjecture, ~(gt(x, unknown))).
+fof(vc, conjecture, ~(iszero(gt(newValue, 42)))).

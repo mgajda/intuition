@@ -563,26 +563,93 @@ exprToSMT e = case e of
 
   _ -> "unknown"
 
+-- =============================================================================
+-- Function Inlining for WP
+-- =============================================================================
+
+-- | Extract function definitions from a Yul program
+type FunctionEnv = [(String, ([String], YulBlock, [String]))]  -- (name, (params, body, returns))
+
+extractFunctions :: YulProgram -> FunctionEnv
+extractFunctions (YulObject _ (YulBlockStmt stmts)) = extractFromStmts stmts
+  where
+    extractFromStmts :: [YulStmt] -> FunctionEnv
+    extractFromStmts [] = []
+    extractFromStmts (stmt:rest) = extractFromStmt stmt ++ extractFromStmts rest
+
+    extractFromStmt :: YulStmt -> FunctionEnv
+    extractFromStmt (YulFunDefRet (YulId (Ident fname)) params retVars body) =
+      let paramNames = extractParamNames params
+          retNames = extractParamNames retVars
+      in [(fname, (paramNames, body, retNames))]
+    extractFromStmt (YulFunDef (YulId (Ident fname)) params body) =
+      let paramNames = extractParamNames params
+      in [(fname, (paramNames, body, []))]
+    extractFromStmt _ = []
+
+    extractParamNames :: [YulTypedIdent] -> [String]
+    extractParamNames params = [name | param <- params, Just name <- [getParamName param]]
+      where
+        getParamName (YulTypedId (YulId (Ident n))) = Just n
+        getParamName (YulTypedIdTyped (YulId (Ident n)) _) = Just n
+        getParamName _ = Nothing
+
+-- | Inline a function call expression
+inlineFunctionCall :: FunctionEnv -> YulExpr -> YulExpr
+inlineFunctionCall funcs expr = case expr of
+  YulFunCall (YulId (Ident fname)) args ->
+    -- First, recursively inline in arguments
+    let inlinedArgs = Prelude.map (inlineFunctionCall funcs) args
+        result = case lookup fname funcs of
+          Just (params, YulBlockStmt bodyStmts, [retVar]) ->
+            -- Simple case: single return value
+            -- Find the assignment to the return variable
+            case findReturnValue bodyStmts retVar of
+              Just retExpr ->
+                -- Substitute arguments for parameters in the return expression
+                let substituted = foldr (\(param, arg) e -> substituteInExpr param arg e)
+                                       retExpr (zip params inlinedArgs)
+                in inlineFunctionCall funcs substituted  -- Recursively inline the result
+              Nothing ->
+                YulFunCall (YulId (Ident fname)) inlinedArgs  -- Keep call but with inlined args
+          _other ->
+            YulFunCall (YulId (Ident fname)) inlinedArgs  -- Keep call but with inlined args
+    in result
+
+  -- Other expressions: keep as is
+  _ -> expr
+
+-- | Find the value assigned to a return variable in function body
+findReturnValue :: [YulStmt] -> String -> Maybe YulExpr
+findReturnValue [] _ = Nothing
+findReturnValue (stmt:rest) retVar = case stmt of
+  YulAssign (YulId (Ident var)) expr | var == retVar -> Just expr
+  _ -> findReturnValue rest retVar
+
 -- | Try to compute WP for simple block patterns
 -- Returns (wpFormula, isWP) where isWP indicates if WP was computed
 tryComputeWP :: YulProgram -> AssertionContext -> (YulExpr, Bool)
-tryComputeWP (YulObject _ (YulBlockStmt stmts)) ctx =
+tryComputeWP prog@(YulObject _ (YulBlockStmt stmts)) ctx =
   case assertCondition ctx of
     Nothing -> (YulLitExpr (YulLitNum 0), False)  -- No condition
     Just cond ->
-      -- Start WP computation with postcondition = true
-      -- The WP will compute what needs to hold before the assertion
-      let postcondTrue = YulLitExpr (YulLitNum 1)  -- Represents "true"
-          result = tryWPForBlock stmts postcondTrue
+      -- Extract function definitions for inlining
+      let funcs = extractFunctions prog
+          -- Start WP computation with postcondition = true
+          postcondTrue = YulLitExpr (YulLitNum 1)  -- Represents "true"
+          result = tryWPForBlock funcs stmts postcondTrue
       in case result of
-        Just wpExpr -> (wpExpr, True)
+        Just wpExpr ->
+          -- Inline function calls in the WP expression
+          let inlined = inlineFunctionCall funcs wpExpr
+          in (inlined, True)
         Nothing -> (cond, False)  -- Fall back to original condition
   where
     -- Try to compute WP for statements in a block leading to an assertion
-    tryWPForBlock :: [YulStmt] -> YulExpr -> Maybe YulExpr
-    tryWPForBlock [] postcond = Just postcond
-    tryWPForBlock (stmt:rest) postcond = do
-      restWP <- tryWPForBlock rest postcond
+    tryWPForBlock :: FunctionEnv -> [YulStmt] -> YulExpr -> Maybe YulExpr
+    tryWPForBlock _ [] postcond = Just postcond
+    tryWPForBlock funcs (stmt:rest) postcond = do
+      restWP <- tryWPForBlock funcs rest postcond
       Just (weakestPrecondition stmt restWP)
 
 -- | Generate SMT-LIB2 format for Presburger arithmetic

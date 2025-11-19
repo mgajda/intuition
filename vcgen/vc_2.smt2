@@ -10,7 +10,7 @@
 ; uint256 range constraints (0 <= var <= 2^256-1)
 
 ; Verification condition
-(assert (and (not (not (> unknown 42))) 1))
+(assert (and (not (not (> (+ 42 1) 42))) 1))
 
 (check-sat)
 (get-model)
