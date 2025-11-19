@@ -296,11 +296,128 @@ extractFromStmt guard stmt = case stmt of
   -- Other statements don't contain assertions
   _ -> []
 
+-- | Theory Axioms for Common Operations
+-- These axioms allow Intuition Prover to reason about arithmetic comparisons
+-- without full arithmetic support
+
+data TheoryAxiom = TheoryAxiom
+  { axiomName :: String
+  , axiomFormula :: String  -- TPTP format
+  , axiomDescription :: String
+  } deriving Show
+
+-- | Standard axioms for ordering relations (gt, lt, eq)
+orderingAxioms :: [TheoryAxiom]
+orderingAxioms =
+  [ TheoryAxiom "transitivity_gt"
+      "![X,Y,Z]: ((gt(X,Y) & gt(Y,Z)) => gt(X,Z))"
+      "Transitivity: if X > Y and Y > Z then X > Z"
+
+  , TheoryAxiom "asymmetry_gt"
+      "![X,Y]: (gt(X,Y) => ~gt(Y,X))"
+      "Asymmetry: if X > Y then not Y > X"
+
+  , TheoryAxiom "trichotomy"
+      "![X,Y]: (gt(X,Y) | eq(X,Y) | gt(Y,X))"
+      "Trichotomy: for any X,Y exactly one holds: X>Y, X=Y, or Y>X"
+
+  , TheoryAxiom "eq_reflexive"
+      "![X]: eq(X,X)"
+      "Reflexivity: X = X"
+
+  , TheoryAxiom "eq_symmetric"
+      "![X,Y]: (eq(X,Y) => eq(Y,X))"
+      "Symmetry: if X = Y then Y = X"
+
+  , TheoryAxiom "eq_transitive"
+      "![X,Y,Z]: ((eq(X,Y) & eq(Y,Z)) => eq(X,Z))"
+      "Transitivity of equality"
+  ]
+
+-- | Boolean algebra axioms for iszero, and, or
+booleanAxioms :: [TheoryAxiom]
+booleanAxioms =
+  [ TheoryAxiom "double_negation"
+      "![P]: (iszero(iszero(P)) <=> P)"
+      "Double negation elimination"
+
+  , TheoryAxiom "demorgan_and"
+      "![P,Q]: (iszero(and(P,Q)) <=> (iszero(P) | iszero(Q)))"
+      "De Morgan's law for AND"
+
+  , TheoryAxiom "demorgan_or"
+      "![P,Q]: (iszero(or(P,Q)) <=> (iszero(P) & iszero(Q)))"
+      "De Morgan's law for OR"
+  ]
+
+-- | Detect which axioms are needed for a given assertion
+detectNeededAxioms :: YulExpr -> [TheoryAxiom]
+detectNeededAxioms expr =
+  let hasGt = hasOperation "gt" expr
+      hasLt = hasOperation "lt" expr
+      hasEq = hasOperation "eq" expr
+      hasIszero = hasOperation "iszero" expr
+      hasAnd = hasOperation "and" expr
+      hasOr = hasOperation "or" expr
+  in concat
+      [ if hasGt || hasLt || hasEq then orderingAxioms else []
+      , if hasIszero || hasAnd || hasOr then booleanAxioms else []
+      ]
+  where
+    hasOperation :: String -> YulExpr -> Bool
+    hasOperation op e = case e of
+      YulFunCall (YulId (Ident fname)) args ->
+        fname == op || any (hasOperation op) args
+      _ -> False
+
+-- | Generate TPTP file with axioms and VC
+generateTPTPWithAxioms :: AssertionContext -> String
+generateTPTPWithAxioms ctx = case assertCondition ctx of
+  Nothing -> "% Unconditional failure - no VC to generate"
+  Just expr ->
+    let axioms = detectNeededAxioms expr
+        axiomDecls = Prelude.map formatAxiom (zip [1..] axioms)
+        vc = generateVCFormula expr
+    in unlines $
+        ["% Verification Condition with Theory Axioms"
+        , "% Location: " ++ assertLocation ctx
+        , ""
+        , "% Theory Axioms:"
+        ] ++ axiomDecls ++
+        ["", "% Verification Condition:"
+        , "fof(vc, conjecture, " ++ vc ++ ")."
+        ]
+  where
+    formatAxiom (n, ax) =
+      "fof(" ++ axiomName ax ++ ", axiom, " ++ axiomFormula ax ++ "). % " ++ axiomDescription ax
+
+    generateVCFormula expr =
+      "~(" ++ exprToTPTP expr ++ ")"
+
+    exprToTPTP :: YulExpr -> String
+    exprToTPTP e = case e of
+      YulFunCall (YulId (Ident "gt")) [a, b] ->
+        "gt(" ++ exprToTPTP a ++ ", " ++ exprToTPTP b ++ ")"
+      YulFunCall (YulId (Ident "lt")) [a, b] ->
+        "lt(" ++ exprToTPTP a ++ ", " ++ exprToTPTP b ++ ")"
+      YulFunCall (YulId (Ident "eq")) [a, b] ->
+        "eq(" ++ exprToTPTP a ++ ", " ++ exprToTPTP b ++ ")"
+      YulFunCall (YulId (Ident "iszero")) [a] ->
+        "iszero(" ++ exprToTPTP a ++ ")"
+      YulFunCall (YulId (Ident "and")) [a, b] ->
+        "(" ++ exprToTPTP a ++ " & " ++ exprToTPTP b ++ ")"
+      YulFunCall (YulId (Ident "or")) [a, b] ->
+        "(" ++ exprToTPTP a ++ " | " ++ exprToTPTP b ++ ")"
+      YulIdentExpr (YulId (Ident name)) -> name
+      YulLitExpr (YulLitNum n) -> show n
+      _ -> "unknown"
+
 {-|
   Integration strategy:
 
   1. Parse Yul with BNFC-generated parser
   2. Traverse AST to find 'invalid()' calls (failed assertions)
   3. Generate VCs ensuring invalid() is never reached
-  4. Output to SMT-LIB or use with intuition prover
+  4. **NEW**: Add theory axioms for operations used in VC
+  5. Output to TPTP with axioms for intuition prover
 -}

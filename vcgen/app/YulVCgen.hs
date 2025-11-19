@@ -83,6 +83,18 @@ compute s =
             putStrLn $ "\nAtom Mapping:"
             mapM_ (\(atom, var) -> putStrLn $ "    " ++ var ++ " := " ++ atom) (propMapping abstraction)
 
+          -- Generate TPTP with axioms
+          let axioms = detectNeededAxioms expr
+          when (not $ null axioms) $ do
+            putStrLn $ "\nTheory Axioms Needed: " ++ show (length axioms)
+            mapM_ (\ax -> putStrLn $ "  - " ++ axiomName ax ++ ": " ++ axiomDescription ax) axioms
+
+          -- Generate TPTP file
+          let tptpContent = generateTPTPWithAxioms ctx
+          let filename = "vc_" ++ show n ++ ".p"
+          writeFile filename tptpContent
+          putStrLn $ "\n📄 TPTP file generated: " ++ filename
+
     isVerifiableAssertion ctx = case assertCondition ctx of
       Nothing -> False
       Just expr -> isVerifiable (abstractAssertion expr)
