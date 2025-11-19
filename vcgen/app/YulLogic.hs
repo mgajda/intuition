@@ -3,11 +3,13 @@
 {-# HLINT ignore "Redundant bracket" #-}
 module YulLogic where
 
-import Prelude
+import Prelude hiding (map)
+import qualified Prelude
 import Control.Monad (join)
-import Data.Map
+import Data.Map (Map)
 import qualified Data.Set as Set
 import qualified Data.Map as Map
+import Data.List (intercalate)
 
 -- Import Tiny's logic infrastructure
 import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..))
@@ -56,26 +58,123 @@ type YulFEnv = Set.Set Formula
   5. Special: assert (custom), invalid (assertion failure)
 -}
 
--- | Translate Yul built-in function to Tiny expression
--- For now, we handle the basic arithmetic and comparison ops
-translateYulBuiltin :: String -> [BExpr] -> BExpr
-translateYulBuiltin fname args = case (fname, args) of
-  -- Arithmetic comparisons
-  ("lt", [e1, e2])  -> toBExpr "LT" e1 e2
-  ("gt", [e1, e2])  -> toBExpr "GT" e1 e2
-  ("eq", [e1, e2])  -> toBExpr "EQ" e1 e2
-
-  -- Boolean operations
-  ("and", [e1, e2]) -> BAnd e1 e2
-  ("or", [e1, e2])  -> orBExpr e1 e2
-  ("not", [e1])     -> BNot e1
-  ("iszero", [e1])  -> BNot e1
-
-  -- For unhandled builtins, we'll create placeholder formulas
-  _ -> BTrue -- TODO: proper encoding
+-- | Translate Yul expression to readable formula string
+-- This creates a human-readable representation for verification
+translateYulExprToString :: YulExpr -> String
+translateYulExprToString expr = case expr of
+  YulLitExpr (YulLitNum n) -> show n
+  YulLitExpr (YulLitHex (HexNumber h)) -> h
+  YulLitExpr (YulLitString s) -> show s
+  YulLitExpr YulLitBool -> "true"
+  YulLitExpr YulLitFalse -> "false"
+  YulIdentExpr (YulId (Ident name)) -> name
+  YulFunCall (YulId (Ident fname)) args -> translateFunCall fname args
   where
-    toBExpr op e1 e2 = BTrue -- Placeholder
-    orBExpr e1 e2 = BNot (BAnd (BNot e1) (BNot e2)) -- De Morgan's law
+    translateFunCall fname args = case (fname, args) of
+      -- Comparisons
+      ("lt", [a, b]) -> "(" ++ translateYulExprToString a ++ " < " ++ translateYulExprToString b ++ ")"
+      ("gt", [a, b]) -> "(" ++ translateYulExprToString a ++ " > " ++ translateYulExprToString b ++ ")"
+      ("eq", [a, b]) -> "(" ++ translateYulExprToString a ++ " = " ++ translateYulExprToString b ++ ")"
+      ("iszero", [a]) -> "¬(" ++ translateYulExprToString a ++ ")"
+
+      -- Boolean
+      ("and", [a, b]) -> "(" ++ translateYulExprToString a ++ " ∧ " ++ translateYulExprToString b ++ ")"
+      ("or", [a, b]) -> "(" ++ translateYulExprToString a ++ " ∨ " ++ translateYulExprToString b ++ ")"
+      ("not", [a]) -> "¬(" ++ translateYulExprToString a ++ ")"
+
+      -- Arithmetic
+      ("add", [a, b]) -> "(" ++ translateYulExprToString a ++ " + " ++ translateYulExprToString b ++ ")"
+      ("sub", [a, b]) -> "(" ++ translateYulExprToString a ++ " - " ++ translateYulExprToString b ++ ")"
+      ("mul", [a, b]) -> "(" ++ translateYulExprToString a ++ " * " ++ translateYulExprToString b ++ ")"
+      ("div", [a, b]) -> "(" ++ translateYulExprToString a ++ " / " ++ translateYulExprToString b ++ ")"
+
+      -- Generic
+      _ -> fname ++ "(" ++ intercalate ", " (Prelude.map translateYulExprToString args) ++ ")"
+
+-- | Generate Verification Condition from assertion
+-- For "if cond { invalid() }", the VC is: ¬cond
+-- (i.e., the condition should NOT hold for the code to be safe)
+generateVC :: AssertionContext -> String
+generateVC (AssertionContext location Nothing) =
+  "⊥  -- Unconditional failure at " ++ location
+generateVC (AssertionContext location (Just cond)) =
+  let condStr = translateYulExprToString cond
+  in "¬(" ++ condStr ++ ")  -- VC from " ++ location
+
+-- | Create propositional abstraction of assertion for Intuition Prover
+-- Strateg ia: Abstrakcja zdaniowa zamienia porównania arytmetyczne na zmienne atomowe
+-- Przykład: iszero(gt(x, y)) => ~p  gdzie p = "x > y"
+data PropositionalAbstraction = PropAbstraction
+  { propFormula :: String  -- Formula in TPTP syntax for intuition prover
+  , propMapping :: [(String, String)]  -- (atomic formula, propositional variable)
+  , isVerifiable :: Bool  -- Can this be verified by intuition prover?
+  , verifiabilityReason :: String
+  } deriving Show
+
+abstractAssertion :: YulExpr -> PropositionalAbstraction
+abstractAssertion expr =
+  let (atoms, atomsSet) = collectUniqueAtoms expr []
+      mapping = zip atoms (Prelude.map (\n -> "p_" ++ show n) [1..])
+      abstracted = substituteAtoms expr mapping
+      -- Check if formula is purely propositional (no arithmetic)
+      verifiable = checkVerifiable expr
+      reason = if verifiable
+               then "Pure propositional tautology"
+               else "Contains arithmetic - needs SMT solver"
+  in PropAbstraction abstracted mapping verifiable reason
+  where
+    -- Collect unique atomic formulas (comparisons, etc.)
+    collectUniqueAtoms :: YulExpr -> [String] -> ([String], [String])
+    collectUniqueAtoms e seen = case e of
+      YulFunCall (YulId (Ident fname)) args -> case fname of
+        -- Logical connectives - recurse
+        "iszero" -> foldl (\(acc, s) arg -> collectUniqueAtoms arg s) (seen, seen) args
+        "and" -> foldl (\(acc, s) arg -> let (new, s') = collectUniqueAtoms arg s
+                                         in (acc ++ new, s')) ([], seen) args
+        "or" -> foldl (\(acc, s) arg -> let (new, s') = collectUniqueAtoms arg s
+                                        in (acc ++ new, s')) ([], seen) args
+        "not" -> foldl (\(acc, s) arg -> collectUniqueAtoms arg s) (seen, seen) args
+        -- Atomic formula - add if not seen
+        _ -> let str = translateYulExprToString e
+             in if str `elem` seen
+                then ([], seen)
+                else ([str], str : seen)
+      _ -> ([], seen)
+
+    -- Substitute atomic formulas with propositional variables
+    substituteAtoms :: YulExpr -> [(String, String)] -> String
+    substituteAtoms e mapping = case e of
+      YulFunCall (YulId (Ident "iszero")) [arg] ->
+        "~(" ++ substituteAtoms arg mapping ++ ")"
+      YulFunCall (YulId (Ident "and")) [a, b] ->
+        "(" ++ substituteAtoms a mapping ++ " & " ++ substituteAtoms b mapping ++ ")"
+      YulFunCall (YulId (Ident "or")) [a, b] ->
+        "(" ++ substituteAtoms a mapping ++ " | " ++ substituteAtoms b mapping ++ ")"
+      YulFunCall (YulId (Ident "not")) [a] ->
+        "~(" ++ substituteAtoms a mapping ++ ")"
+      -- Variables and literals are atomic propositions
+      YulIdentExpr (YulId (Ident name)) -> name
+      YulLitExpr _ -> translateYulExprToString e
+      _ ->
+        let str = translateYulExprToString e
+        in case lookup str mapping of
+             Just var -> var
+             Nothing -> str  -- Use the string representation if no mapping
+
+    -- Check if formula can be verified by intuition prover
+    -- (i.e., is it a pure propositional tautology?)
+    checkVerifiable :: YulExpr -> Bool
+    checkVerifiable e = case e of
+      -- Pure logical connectives - verifiable
+      YulFunCall (YulId (Ident "iszero")) [arg] -> checkVerifiable arg
+      YulFunCall (YulId (Ident "and")) args -> all checkVerifiable args
+      YulFunCall (YulId (Ident "or")) args -> all checkVerifiable args
+      YulFunCall (YulId (Ident "not")) [arg] -> checkVerifiable arg
+      -- Anything else (gt, eq, add, etc.) needs SMT
+      YulFunCall _ _ -> False
+      -- Literals and variables by themselves are trivial
+      YulLitExpr _ -> True
+      YulIdentExpr _ -> True
 
 {-|
   Verification condition generation for Yul

@@ -48,15 +48,41 @@ compute s =
             let assertions = extractAssertions prog
             putStrLn $ "\nFound " ++ show (length assertions) ++ " assertion(s)"
 
-            -- Print assertion details
+            -- Print assertion details with VCs and abstractions
             mapM_ printAssertion (zip [1..] assertions)
 
-            -- TODO: Generate and check VCs
+            -- Statistics
+            let verifiable = length $ filter isVerifiableAssertion assertions
+            let total = length assertions
+            putStrLn $ "\n=== Verification Statistics ==="
+            putStrLn $ "Total assertions: " ++ show total
+            putStrLn $ "Verifiable by Intuition Prover: " ++ show verifiable ++ " (" ++ show (verifiable * 100 `div` max 1 total) ++ "%)"
+            putStrLn $ "Require SMT solver: " ++ show (total - verifiable) ++ " (" ++ show ((total - verifiable) * 100 `div` max 1 total) ++ "%)"
+
             putStrLn "\nDone."
   where
     printAssertion (n, ctx) = do
-      putStrLn $ "\nAssertion " ++ show n ++ ":"
-      putStrLn $ "  Location: " ++ assertLocation ctx
-      putStrLn $ "  Condition: " ++ case assertCondition ctx of
-        Nothing -> "unconditional"
-        Just expr -> show expr
+      putStrLn $ "\n=== Assertion " ++ show n ++ " ==="
+      putStrLn $ "Location: " ++ assertLocation ctx
+      case assertCondition ctx of
+        Nothing -> putStrLn "Condition: unconditional failure"
+        Just expr -> do
+          -- Generate VC
+          let vc = generateVC ctx
+          putStrLn $ "\nVerification Condition:"
+          putStrLn $ "  " ++ vc
+
+          -- Generate propositional abstraction
+          let abstraction = abstractAssertion expr
+          putStrLn $ "\nPropositional Abstraction:"
+          putStrLn $ "  Formula: " ++ propFormula abstraction
+          putStrLn $ "  Verifiable: " ++ show (isVerifiable abstraction)
+          putStrLn $ "  Reason: " ++ verifiabilityReason abstraction
+
+          when (not $ null $ propMapping abstraction) $ do
+            putStrLn $ "\nAtom Mapping:"
+            mapM_ (\(atom, var) -> putStrLn $ "    " ++ var ++ " := " ++ atom) (propMapping abstraction)
+
+    isVerifiableAssertion ctx = case assertCondition ctx of
+      Nothing -> False
+      Just expr -> isVerifiable (abstractAssertion expr)
