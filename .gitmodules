@@ -1,0 +1,3 @@
+[submodule "vcgen/datasets/smartbugs-curated"]
+	path = vcgen/datasets/smartbugs-curated
+	url = https://github.com/smartbugs/smartbugs-curated.git
