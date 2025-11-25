@@ -1,2 +1,3 @@
 .stack-work
 vcgen/.vscode/tasks.json
+.menv/
