@@ -1,0 +1,85 @@
+filename,logic,result,time_ms,error
+vc_10_qfbv.smt2,QF_BV,sat,107,
+vc_10.smt2,QF_LIA,timeout,107,(error "line 17 column 30: unknown constant unknown")
+vc_11.smt2,QF_LIA,timeout,106,(error "line 15 column 22: unknown constant unknown")
+vc_12.smt2,QF_LIA,timeout,107,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_13.smt2,QF_LIA,sat,106,
+vc_14.smt2,QF_LIA,sat,106,
+vc_15.smt2,QF_LIA,sat,106,
+vc_16_qfbv.smt2,QF_BV,sat,107,
+vc_16.smt2,QF_LIA,timeout,106,(error "line 15 column 22: unknown constant unknown")
+vc_17.smt2,QF_LIA,sat,107,
+vc_18.smt2,QF_LIA,sat,107,
+vc_19.smt2,QF_LIA,timeout,107,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_1_qfbv.smt2,QF_BV,sat,107,
+vc_1.smt2,QF_BV,sat,107,
+vc_20_qfbv.smt2,QF_BV,sat,107,
+vc_20.smt2,QF_LIA,sat,106,
+vc_21.smt2,QF_LIA,sat,108,
+vc_22.smt2,QF_LIA,sat,107,
+vc_23.smt2,QF_LIA,sat,107,
+vc_24.smt2,QF_LIA,sat,107,
+vc_25.smt2,QF_LIA,sat,108,
+vc_26.smt2,QF_LIA,timeout,107,(error "line 17 column 23: unknown constant unknown")
+vc_27.smt2,QF_LIA,sat,107,
+vc_28.smt2,QF_LIA,timeout,106,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_29.smt2,QF_LIA,timeout,107,(error "line 15 column 24: Sort mismatch at argument #1 for function (declare-fun not (Bool) Bool) supplied sort is Int")
+vc_2.smt2,QF_LIA,timeout,106,(error "line 13 column 43: Sort mismatch at argument #2 for function (declare-fun and (Bool Bool) Bool) supplied sort is Int")
+vc_30.smt2,QF_LIA,sat,106,
+vc_31.smt2,QF_LIA,sat,106,
+vc_32.smt2,QF_LIA,sat,107,
+vc_33.smt2,QF_LIA,sat,106,
+vc_34.smt2,QF_LIA,sat,106,
+vc_35.smt2,QF_LIA,sat,107,
+vc_36.smt2,QF_LIA,sat,107,
+vc_37.smt2,QF_LIA,timeout,107,(error "line 17 column 23: unknown constant unknown")
+vc_38.smt2,QF_LIA,timeout,106,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_39.smt2,QF_LIA,sat,107,
+vc_3_qfbv.smt2,QF_BV,sat,107,
+vc_3.smt2,QF_LIA,timeout,107,(error "line 13 column 43: Sort mismatch at argument #2 for function (declare-fun and (Bool Bool) Bool) supplied sort is Int")
+vc_40.smt2,QF_LIA,sat,106,
+vc_41.smt2,QF_LIA,sat,106,
+vc_42.smt2,QF_LIA,sat,106,
+vc_43.smt2,QF_LIA,timeout,107,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_44.smt2,QF_LIA,sat,107,
+vc_45.smt2,QF_LIA,sat,107,
+vc_46.smt2,QF_LIA,sat,107,
+vc_47.smt2,QF_LIA,sat,106,
+vc_48.smt2,QF_LIA,timeout,107,(error "line 15 column 24: Sort mismatch at argument #1 for function (declare-fun not (Bool) Bool) supplied sort is Int")
+vc_49.smt2,QF_LIA,sat,107,
+vc_4.smt2,QF_LIA,timeout,107,(error "line 13 column 60: Sort mismatch at argument #2 for function (declare-fun and (Bool Bool) Bool) supplied sort is Int")
+vc_50.smt2,QF_LIA,timeout,106,(error "line 17 column 23: unknown constant unknown")
+vc_51.smt2,QF_LIA,sat,106,
+vc_52.smt2,QF_LIA,timeout,107,(error "line 15 column 22: unknown constant unknown")
+vc_53.smt2,QF_LIA,sat,107,
+vc_54.smt2,QF_LIA,sat,106,
+vc_55.smt2,QF_LIA,sat,107,
+vc_56.smt2,QF_LIA,timeout,107,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_57.smt2,QF_LIA,sat,106,
+vc_58.smt2,QF_LIA,sat,107,
+vc_59.smt2,QF_LIA,sat,107,
+vc_5.smt2,QF_LIA,timeout,107,(error "line 17 column 64: Sort mismatch at argument #2 for function (declare-fun and (Bool Bool) Bool) supplied sort is Int")
+vc_60.smt2,QF_LIA,sat,106,
+vc_61.smt2,QF_LIA,sat,107,
+vc_62.smt2,QF_LIA,sat,107,
+vc_63.smt2,QF_LIA,timeout,106,(error "line 17 column 23: unknown constant unknown")
+vc_64.smt2,QF_LIA,timeout,106,(error "line 17 column 30: unknown constant unknown")
+vc_65.smt2,QF_LIA,timeout,107,(error "line 15 column 22: unknown constant unknown")
+vc_66.smt2,QF_LIA,sat,107,
+vc_67.smt2,QF_LIA,timeout,107,(error "line 15 column 22: unknown constant unknown")
+vc_68.smt2,QF_LIA,sat,108,
+vc_69.smt2,QF_LIA,sat,106,
+vc_6.smt2,QF_LIA,timeout,107,(error "line 17 column 64: Sort mismatch at argument #2 for function (declare-fun and (Bool Bool) Bool) supplied sort is Int")
+vc_70.smt2,QF_LIA,sat,107,
+vc_71.smt2,QF_LIA,sat,108,
+vc_72.smt2,QF_LIA,timeout,107,(error "line 15 column 24: Sort mismatch at argument #1 for function (declare-fun not (Bool) Bool) supplied sort is Int")
+vc_73.smt2,QF_LIA,sat,106,
+vc_74.smt2,QF_LIA,timeout,106,(error "line 19 column 49: logic does not support nonlinear arithmetic")
+vc_75.smt2,QF_LIA,sat,107,
+vc_76.smt2,QF_LIA,sat,107,
+vc_77.smt2,QF_LIA,timeout,106,(error "line 19 column 21: unknown constant unknown")
+vc_78.smt2,QF_LIA,sat,107,
+vc_79.smt2,QF_LIA,timeout,107,(error "line 19 column 21: unknown constant unknown")
+vc_7.smt2,QF_LIA,sat,106,
+vc_8.smt2,QF_LIA,sat,107,
+vc_9.smt2,QF_LIA,sat,106,
