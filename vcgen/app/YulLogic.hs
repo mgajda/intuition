@@ -11,6 +11,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.List (intercalate, stripPrefix, isInfixOf)
 import Numeric (readHex)
+import Text.Printf (printf)
 
 -- Import Tiny's logic infrastructure
 import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..))
@@ -256,18 +257,21 @@ extractFromStmt guard stmt = case stmt of
   -- The block executes only when cond is true
   YulIf cond block ->
     let assertions = extractFromBlock (Just cond) block
-        -- Check if this is an assertion pattern: if cond { invalid() }
+        -- Check if this is an assertion pattern:
+        -- if cond { invalid() } or if cond { panic_error_0xXX() }
         isAssertion = case block of
-          YulBlockStmt [YulExprStmt (YulFunCall (YulId (Ident "invalid")) [])] -> True
+          YulBlockStmt [YulExprStmt (YulFunCall (YulId (Ident fname)) [])] ->
+            fname == "invalid" || "panic_error" `isInfixOf` fname
           _ -> False
     in if isAssertion
        then [AssertionContext "if-guard" (Just cond)]
        else assertions
 
-  -- Expression statement: might be invalid()
+  -- Expression statement: might be invalid() or panic_error_*()
   YulExprStmt expr -> case expr of
-    YulFunCall (YulId (Ident "invalid")) [] ->
-      [AssertionContext "direct-call" guard]
+    YulFunCall (YulId (Ident fname)) []
+      | fname == "invalid" || "panic_error" `isInfixOf` fname ->
+        [AssertionContext "direct-call" guard]
     _ -> []
 
   -- Function definition: search inside the body
@@ -512,7 +516,87 @@ collectVariables e = Set.toList $ collectVars e Set.empty
       YulFunCall _ args -> foldr collectVars vars args
       _ -> vars
 
--- | Convert Yul expression to SMT-LIB2 syntax
+-- | Convert integer to 256-bit hex literal for QF_BV
+intToHex256 :: Integer -> String
+intToHex256 n =
+  let hex = printf "%064x" n  -- 64 hex digits = 256 bits
+  in "#x" ++ hex
+
+-- | Convert Yul expression to SMT-LIB2 QF_BV (bitvector) syntax
+exprToSMT_BV :: YulExpr -> String
+exprToSMT_BV e = case e of
+  YulLitExpr (YulLitNum n) -> intToHex256 n
+  YulLitExpr (YulLitHex (HexNumber h)) ->
+    -- Convert hex to 256-bit format
+    case stripPrefix "0x" h of
+      Just hexStr -> case readHex hexStr :: [(Integer, String)] of
+        [(n, "")] -> intToHex256 n
+        _ -> intToHex256 0  -- Fallback
+      Nothing -> intToHex256 0
+  YulIdentExpr (YulId (Ident name)) -> name
+
+  -- Arithmetic (bitvector operations)
+  YulFunCall (YulId (Ident "add")) [a, b] ->
+    "(bvadd " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "sub")) [a, b] ->
+    "(bvsub " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "mul")) [a, b] ->
+    "(bvmul " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "div")) [a, b] ->
+    "(bvudiv " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "mod")) [a, b] ->
+    "(bvurem " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+
+  -- Comparisons (unsigned)
+  YulFunCall (YulId (Ident "gt")) [a, b] ->
+    "(bvugt " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "lt")) [a, b] ->
+    "(bvult " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "eq")) [a, b] ->
+    "(= " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+
+  -- Bitwise operations
+  YulFunCall (YulId (Ident "and")) [a, b] ->
+    -- Check if this is bitwise AND or boolean AND
+    case (a, b) of
+      (YulFunCall (YulId (Ident fname1)) _, YulFunCall (YulId (Ident fname2)) _)
+        | fname1 `elem` ["gt", "lt", "eq", "iszero"] && fname2 `elem` ["gt", "lt", "eq", "iszero"] ->
+            -- Boolean AND
+            "(and " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      _ -> "(bvand " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "or")) [a, b] ->
+    -- Check if this is bitwise OR or boolean OR
+    case (a, b) of
+      (YulFunCall (YulId (Ident fname1)) _, YulFunCall (YulId (Ident fname2)) _)
+        | fname1 `elem` ["gt", "lt", "eq", "iszero"] && fname2 `elem` ["gt", "lt", "eq", "iszero"] ->
+            -- Boolean OR
+            "(or " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+      _ -> "(bvor " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "xor")) [a, b] ->
+    "(bvxor " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "not")) [a] ->
+    "(bvnot " ++ exprToSMT_BV a ++ ")"
+
+  -- Shift operations
+  YulFunCall (YulId (Ident "shl")) [shift, value] ->
+    "(bvshl " ++ exprToSMT_BV value ++ " " ++ exprToSMT_BV shift ++ ")"
+  YulFunCall (YulId (Ident "shr")) [shift, value] ->
+    "(bvlshr " ++ exprToSMT_BV value ++ " " ++ exprToSMT_BV shift ++ ")"
+  YulFunCall (YulId (Ident "sar")) [shift, value] ->
+    "(bvashr " ++ exprToSMT_BV value ++ " " ++ exprToSMT_BV shift ++ ")"
+
+  -- iszero - convert to comparison with zero
+  YulFunCall (YulId (Ident "iszero")) [a] ->
+    -- Check if subexpression is a comparison (returns boolean)
+    case a of
+      YulFunCall (YulId (Ident fname)) _
+        | fname `elem` ["gt", "lt", "eq", "bvugt", "bvult", "and", "or", "not", "iszero"] ->
+            "(not " ++ exprToSMT_BV a ++ ")"
+      _ -> "(= " ++ exprToSMT_BV a ++ " " ++ intToHex256 0 ++ ")"
+
+  _ -> "unknown"
+
+-- | Convert Yul expression to SMT-LIB2 QF_LIA (integer) syntax
 exprToSMT :: YulExpr -> String
 exprToSMT e = case e of
   YulLitExpr (YulLitNum n) -> show n
@@ -573,6 +657,7 @@ type FunctionEnv = [(String, ([String], YulBlock, [String]))]  -- (name, (params
 extractFunctions :: YulProgram -> FunctionEnv
 extractFunctions (YulObject _ (YulBlockStmt stmts)) = extractFromStmts stmts
   where
+
     extractFromStmts :: [YulStmt] -> FunctionEnv
     extractFromStmts [] = []
     extractFromStmts (stmt:rest) = extractFromStmt stmt ++ extractFromStmts rest
@@ -626,31 +711,18 @@ findReturnValue (stmt:rest) retVar = case stmt of
   YulAssign (YulId (Ident var)) expr | var == retVar -> Just expr
   _ -> findReturnValue rest retVar
 
--- | Try to compute WP for simple block patterns
--- Returns (wpFormula, isWP) where isWP indicates if WP was computed
-tryComputeWP :: YulProgram -> AssertionContext -> (YulExpr, Bool)
-tryComputeWP prog@(YulObject _ (YulBlockStmt stmts)) ctx =
+-- | Inline function calls in assertion condition
+-- Returns (inlinedCondition, wasInlined) where wasInlined indicates if inlining occurred
+inlineAssertionCondition :: YulProgram -> AssertionContext -> (YulExpr, Bool)
+inlineAssertionCondition prog ctx =
   case assertCondition ctx of
     Nothing -> (YulLitExpr (YulLitNum 0), False)  -- No condition
     Just cond ->
-      -- Extract function definitions for inlining
+      -- Extract function definitions for inlining (from all objects and nested parts)
       let funcs = extractFunctions prog
-          -- Start WP computation with postcondition = true
-          postcondTrue = YulLitExpr (YulLitNum 1)  -- Represents "true"
-          result = tryWPForBlock funcs stmts postcondTrue
-      in case result of
-        Just wpExpr ->
-          -- Inline function calls in the WP expression
-          let inlined = inlineFunctionCall funcs wpExpr
-          in (inlined, True)
-        Nothing -> (cond, False)  -- Fall back to original condition
-  where
-    -- Try to compute WP for statements in a block leading to an assertion
-    tryWPForBlock :: FunctionEnv -> [YulStmt] -> YulExpr -> Maybe YulExpr
-    tryWPForBlock _ [] postcond = Just postcond
-    tryWPForBlock funcs (stmt:rest) postcond = do
-      restWP <- tryWPForBlock funcs rest postcond
-      Just (weakestPrecondition stmt restWP)
+          -- Inline function calls to simplify the condition
+          inlined = inlineFunctionCall funcs cond
+      in (inlined, True)
 
 -- | Generate SMT-LIB2 format for Presburger arithmetic
 -- Uses LIA (Linear Integer Arithmetic) theory
@@ -659,22 +731,31 @@ generateSMTLIB2 :: AssertionContext -> String
 generateSMTLIB2 ctx = generateSMTLIB2_NoWP ctx
 
 -- | Generate SMT-LIB2 with WP for a program
+-- SMART ROUTING: Uses weakest logic (QF_LIA when sufficient, QF_BV when necessary)
 generateSMTLIB2_WP :: YulProgram -> AssertionContext -> String
 generateSMTLIB2_WP prog ctx = case assertCondition ctx of
   Nothing -> "; Unconditional failure - no VC to generate"
   Just expr ->
-    let (wpExpr, isWP) = tryComputeWP prog ctx
-        classification = classifyPresburger wpExpr
-        variables = collectVariables wpExpr
+    let (inlinedExpr, wasInlined) = inlineAssertionCondition prog ctx
+        classification = classifyPresburger inlinedExpr
+    in if isPresburger classification
+       then generateSMTLIB2_WP_QF_LIA prog ctx inlinedExpr wasInlined classification
+       else generateSMTLIB2_QF_BV prog ctx
+
+-- | Generate SMT-LIB2 with WP using QF_LIA (Presburger arithmetic)
+generateSMTLIB2_WP_QF_LIA :: YulProgram -> AssertionContext -> YulExpr -> Bool -> PresburgerClassification -> String
+generateSMTLIB2_WP_QF_LIA _prog ctx inlinedExpr wasInlined classification =
+    let variables = collectVariables inlinedExpr
         varDecls = Prelude.map (\v -> "(declare-const " ++ v ++ " Int)") variables
-        vc = exprToSMT wpExpr
+        vc = exprToSMT inlinedExpr
         uint256Max = show ((2 :: Integer) ^ (256 :: Integer) - 1)
         rangeConstraints = Prelude.map (\v -> "(assert (and (>= " ++ v ++ " 0) (<= " ++ v ++ " " ++ uint256Max ++ ")))") variables
     in unlines $
         ["; Verification Condition for: " ++ assertLocation ctx
-        , "; WP Computed: " ++ show isWP
+        , "; Functions inlined: " ++ show wasInlined
         , "; Classification: " ++ (if isPresburger classification then "Presburger" else "Non-Presburger")
         , "; Reason: " ++ reason classification
+        , "; Logic: QF_LIA (Presburger - weakest sufficient logic)"
         , ""
         , "(set-logic QF_LIA)  ; Quantifier-Free Linear Integer Arithmetic"
         , ""
@@ -717,6 +798,37 @@ generateSMTLIB2_NoWP ctx = case assertCondition ctx of
         [""
         , "; Verification condition: prove that this is unsatisfiable"
         , "; (i.e., the negation should be valid)"
+        , "(assert " ++ vc ++ ")"
+        , ""
+        , "(check-sat)"
+        , "(get-model)"
+        ]
+
+-- | QF_BV SMT-LIB2 generation (bitvector logic)
+-- Used when Presburger classification fails (non-linear operations)
+generateSMTLIB2_QF_BV :: YulProgram -> AssertionContext -> String
+generateSMTLIB2_QF_BV prog ctx = case assertCondition ctx of
+  Nothing -> "; Unconditional failure - no VC to generate"
+  Just expr ->
+    let (inlinedExpr, wasInlined) = inlineAssertionCondition prog ctx
+        classification = classifyPresburger inlinedExpr
+        variables = collectVariables inlinedExpr
+        varDecls = Prelude.map (\v -> "(declare-const " ++ v ++ " (_ BitVec 256))") variables
+        vc = exprToSMT_BV inlinedExpr
+    in unlines $
+        ["; Verification Condition for: " ++ assertLocation ctx
+        , "; Functions inlined: " ++ show wasInlined
+        , "; Classification: " ++ (if isPresburger classification then "Presburger (using QF_BV)" else "Non-Presburger")
+        , "; Reason: " ++ reason classification
+        , ""
+        , "(set-logic QF_BV)  ; Quantifier-Free Bitvectors"
+        , ""
+        , "; Variable declarations (256-bit bitvectors)"
+        ] ++ varDecls ++
+        [""
+        , "; No range constraints needed - bitvectors are implicitly bounded [0, 2^256-1]"
+        , ""
+        , "; Verification condition"
         , "(assert " ++ vc ++ ")"
         , ""
         , "(check-sat)"
@@ -815,11 +927,11 @@ verifyWithIntuitionWP prog ctx = case assertCondition ctx of
     , verificationMessage = "Unconditional failure - no VC to generate"
     }
   Just _ ->
-    let -- Step 1: Compute WP
-        (wpExpr, isWP) = tryComputeWP prog ctx
+    let -- Step 1: Inline function calls in assertion condition
+        (inlinedExpr, wasInlined) = inlineAssertionCondition prog ctx
 
         -- Step 2: Propositional abstraction
-        abstraction = abstractAssertion wpExpr
+        abstraction = abstractAssertion inlinedExpr
         propForm = propFormula abstraction
         atoms = propMapping abstraction
 
@@ -834,8 +946,8 @@ verifyWithIntuitionWP prog ctx = case assertCondition ctx of
         allAtomsValid = all snd atomResults
         success = intuitionOk && allAtomsValid
 
-        message = if not isWP then
-                    "WP computation failed - falling back to direct checking"
+        message = if not wasInlined then
+                    "Function inlining failed - using condition as-is"
                   else if null atoms then
                     "✅ VERIFIED by Intuition (purely propositional)!"
                   else if not allAtomsValid then
@@ -846,7 +958,7 @@ verifyWithIntuitionWP prog ctx = case assertCondition ctx of
 
     in IntuitionVerificationResult
        { intuitionSuccess = success
-       , wpComputed = isWP
+       , wpComputed = wasInlined
        , propositionalFormula = propForm
        , arithmeticAtoms = Prelude.map (\(e, i) -> (i, e)) atoms
        , atomCheckResults = atomResults
