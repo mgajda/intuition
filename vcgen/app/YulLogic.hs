@@ -577,6 +577,31 @@ exprToSMT_BV e = case e of
   YulFunCall (YulId (Ident "not")) [a] ->
     "(bvnot " ++ exprToSMT_BV a ++ ")"
 
+  -- Signed operations
+  YulFunCall (YulId (Ident "sdiv")) [a, b] ->
+    "(bvsdiv " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "smod")) [a, b] ->
+    "(bvsrem " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "slt")) [a, b] ->
+    "(bvslt " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+  YulFunCall (YulId (Ident "sgt")) [a, b] ->
+    "(bvsgt " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ")"
+
+  -- Modular arithmetic (non-linear)
+  YulFunCall (YulId (Ident "addmod")) [a, b, m] ->
+    "(bvurem (bvadd " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ") " ++ exprToSMT_BV m ++ ")"
+  YulFunCall (YulId (Ident "mulmod")) [a, b, m] ->
+    "(bvurem (bvmul " ++ exprToSMT_BV a ++ " " ++ exprToSMT_BV b ++ ") " ++ exprToSMT_BV m ++ ")"
+
+  -- Exponentiation (non-linear) - represented as unknown since no direct BV operation
+  YulFunCall (YulId (Ident "exp")) [_, _] ->
+    "unknown"  -- exp is non-linear, no direct bitvector operation
+
+  -- Byte operations
+  YulFunCall (YulId (Ident "byte")) [n, x] ->
+    -- Extract byte: shift right by (31-n)*8 bits, then mask lowest byte
+    "(bvand (bvlshr " ++ exprToSMT_BV x ++ " (bvmul " ++ intToHex256 8 ++ " (bvsub " ++ intToHex256 31 ++ " " ++ exprToSMT_BV n ++ "))) " ++ intToHex256 0xFF ++ ")"
+
   -- Shift operations
   YulFunCall (YulId (Ident "shl")) [shift, value] ->
     "(bvshl " ++ exprToSMT_BV value ++ " " ++ exprToSMT_BV shift ++ ")"
