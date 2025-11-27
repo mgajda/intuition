@@ -312,6 +312,7 @@ data TheoryAxiom = TheoryAxiom
   } deriving Show
 
 -- | Standard axioms for ordering relations (gt, lt, eq)
+-- These are theory axioms - keep them in natural implication form
 orderingAxioms :: [TheoryAxiom]
 orderingAxioms =
   [ TheoryAxiom "transitivity_gt"
@@ -337,6 +338,14 @@ orderingAxioms =
   , TheoryAxiom "eq_transitive"
       "![X,Y,Z]: ((eq(X,Y) & eq(Y,Z)) => eq(X,Z))"
       "Transitivity of equality"
+
+  , TheoryAxiom "lt_equiv_gt"
+      "![X,Y]: (lt(X,Y) <=> gt(Y,X))"
+      "Less than is equivalent to greater than reversed"
+
+  , TheoryAxiom "lt_transitive"
+      "![X,Y,Z]: ((lt(X,Y) & lt(Y,Z)) => lt(X,Z))"
+      "Transitivity: if X < Y and Y < Z then X < Z"
   ]
 
 -- | Boolean algebra axioms for iszero, and, or
@@ -416,6 +425,184 @@ generateTPTPWithAxioms ctx = case assertCondition ctx of
       YulIdentExpr (YulId (Ident name)) -> name
       YulLitExpr (YulLitNum n) -> show n
       _ -> "unknown"
+
+-- | Intermediate representation for formulas in implication-based format
+-- This separates the logic conversion from serialization to TPTP
+data ImplicationFormula
+  = ImpAtom String [ImplicationTerm]  -- Atomic predicate: gt(x, y)
+  | ImpNot ImplicationFormula           -- Negation: ~P
+  | ImpImpl ImplicationFormula ImplicationFormula  -- Implication: P => Q
+  | ImpFalse                            -- Falsity: ⊥
+  deriving (Show, Eq)
+
+-- | Terms in formulas (not propositions)
+data ImplicationTerm
+  = TermVar String                      -- Variable: x
+  | TermLit Integer                     -- Literal: 42
+  | TermApp String [ImplicationTerm]    -- Function application: add(x, y)
+  deriving (Show, Eq)
+
+-- | Convert formula to implication-based format for Intuition prover
+-- Uses Stålmarck reduction rules for propositional connectives
+-- Reference: https://arxiv.org/pdf/2509.16172
+--
+-- Key insight: Only apply Stålmarck rules to propositional connectives (AND/OR)
+-- Atomic predicates (gt, lt, eq) and function applications (div, shl) stay as-is
+--
+-- Stålmarck rules (for propositional connectives only):
+--   A ∨ B ⟹ (¬A → B)
+--   A ∧ B ⟹ ¬(A → ¬B)
+--   P ↔ Q ⟹ ((P → Q) → ((Q → P) → ⊥)) → ⊥
+exprToImplication :: YulExpr -> ImplicationFormula
+exprToImplication e = case e of
+  -- === PROPOSITIONAL CONNECTIVES (apply Stålmarck rules) ===
+
+  -- Disjunction: A ∨ B becomes (~A => B)
+  YulFunCall (YulId (Ident "or")) [a, b] ->
+    ImpImpl (ImpNot (exprToImplication a)) (exprToImplication b)
+
+  -- Conjunction: A ∧ B becomes ~(A => ~B)
+  YulFunCall (YulId (Ident "and")) [a, b] ->
+    ImpNot (ImpImpl (exprToImplication a) (ImpNot (exprToImplication b)))
+
+  -- Negation (iszero in Yul)
+  YulFunCall (YulId (Ident "iszero")) [a] ->
+    ImpNot (exprToImplication a)
+
+  -- === ATOMIC PREDICATES (keep as atomic formulas) ===
+
+  -- Comparisons are atomic predicates
+  YulFunCall (YulId (Ident op)) [a, b] | op `elem` ["gt", "lt", "eq", "slt", "sgt"] ->
+    ImpAtom op [yulToTerm a, yulToTerm b]
+
+  -- === FALLBACK ===
+  -- If not a recognized propositional connective or comparison,
+  -- treat as unknown formula
+  _ -> ImpAtom "unknown" []
+
+-- | Convert Yul expression to term (not a formula)
+yulToTerm :: YulExpr -> ImplicationTerm
+yulToTerm expr = case expr of
+  -- Variables and literals
+  YulIdentExpr (YulId (Ident name)) -> TermVar name
+  YulLitExpr (YulLitNum n) -> TermLit n
+
+  -- Function applications (arithmetic, shifts, etc.)
+  YulFunCall (YulId (Ident fname)) args ->
+    TermApp fname (Prelude.map yulToTerm args)
+
+  -- Unknown
+  _ -> TermVar "unknown"
+
+-- | Serialize ImplicationFormula to TPTP format
+impFormulaToTPTP :: ImplicationFormula -> String
+impFormulaToTPTP f = case f of
+  ImpAtom pred terms ->
+    pred ++ "(" ++ intercalate ", " (Prelude.map termToTPTP terms) ++ ")"
+  ImpNot p ->
+    "~(" ++ impFormulaToTPTP p ++ ")"
+  ImpImpl p q ->
+    "(" ++ impFormulaToTPTP p ++ " => " ++ impFormulaToTPTP q ++ ")"
+  ImpFalse ->
+    "$false"
+
+-- | Serialize ImplicationTerm to TPTP format
+termToTPTP :: ImplicationTerm -> String
+termToTPTP t = case t of
+  TermVar v -> v
+  TermLit n -> show n
+  TermApp f args ->
+    f ++ "(" ++ intercalate ", " (Prelude.map termToTPTP args) ++ ")"
+
+-- | Generate TPTP file with implications for Intuition prover
+-- For non-Presburger cases (division, shifts, etc.)
+-- Uses Stålmarck reduction instead of CNF
+generateTPTPWithImplications :: AssertionContext -> String
+generateTPTPWithImplications ctx = case assertCondition ctx of
+  Nothing -> "% Unconditional failure - no VC to generate"
+  Just expr ->
+    let axioms = detectNeededAxiomsForImplication expr
+        axiomDecls = Prelude.map formatAxiom (zip [1..] axioms)
+        -- Convert to implication formula, negate, then serialize to TPTP
+        vc = impFormulaToTPTP (ImpNot (exprToImplication expr))
+    in unlines $
+        ["% Verification Condition with Implication-based Format"
+        , "% Uses Stålmarck reduction rules instead of CNF"
+        , "% Location: " ++ assertLocation ctx
+        , "% Classification: Non-Presburger (division, shifts, etc.)"
+        , ""
+        , "% Axioms for non-Presburger operations:"
+        ] ++ axiomDecls ++
+        ["", "% Verification Condition:"
+        , "fof(vc, conjecture, " ++ vc ++ ")."
+        ]
+  where
+    formatAxiom (n, ax) =
+      "fof(" ++ axiomName ax ++ ", axiom, " ++ axiomFormula ax ++ "). % " ++ axiomDescription ax
+
+-- | Detect axioms needed for non-Presburger operations
+detectNeededAxiomsForImplication :: YulExpr -> [TheoryAxiom]
+detectNeededAxiomsForImplication expr =
+  let hasDiv = hasOperation "div" expr || hasOperation "sdiv" expr
+      hasMod = hasOperation "mod" expr || hasOperation "smod" expr
+      hasShift = hasOperation "shl" expr || hasOperation "shr" expr || hasOperation "sar" expr
+      baseAxioms = detectNeededAxioms expr  -- Reuse existing detection
+  in concat
+      [ baseAxioms
+      , if hasDiv then divisionAxioms else []
+      , if hasMod then moduloAxioms else []
+      , if hasShift then shiftAxioms else []
+      ]
+  where
+    hasOperation :: String -> YulExpr -> Bool
+    hasOperation op e = case e of
+      YulFunCall (YulId (Ident fname)) args ->
+        fname == op || any (hasOperation op) args
+      _ -> False
+
+-- | Axioms for division operations
+divisionAxioms :: [TheoryAxiom]
+divisionAxioms =
+  [ TheoryAxiom "div_positive"
+      "![X,Y]: ((gt(X,0) & gt(Y,0)) => gt(div(X,Y),0))"
+      "Division of positives is positive"
+
+  , TheoryAxiom "div_bounds"
+      "![X,Y]: (gt(Y,0) => (gt(div(X,Y),0) | eq(div(X,Y),0)))"
+      "Division result is non-negative when divisor is positive"
+
+  , TheoryAxiom "div_monotonic"
+      "![X,Y,Z]: ((gt(Y,0) & gt(Z,0) & gt(X,Y)) => gt(div(X,Z),div(Y,Z)))"
+      "Division preserves ordering"
+  ]
+
+-- | Axioms for modulo operations
+moduloAxioms :: [TheoryAxiom]
+moduloAxioms =
+  [ TheoryAxiom "mod_bounds"
+      "![X,Y]: (gt(Y,0) => (gt(mod(X,Y),0) | eq(mod(X,Y),0)))"
+      "Modulo result is non-negative"
+
+  , TheoryAxiom "mod_less_than_divisor"
+      "![X,Y]: (gt(Y,0) => lt(mod(X,Y),Y))"
+      "Modulo result is less than divisor"
+  ]
+
+-- | Axioms for shift operations
+shiftAxioms :: [TheoryAxiom]
+shiftAxioms =
+  [ TheoryAxiom "shl_doubles"
+      "![X]: eq(shl(X,1), mul(X,2))"
+      "Left shift by 1 is multiplication by 2"
+
+  , TheoryAxiom "shr_halves"
+      "![X]: eq(shr(X,1), div(X,2))"
+      "Right shift by 1 is division by 2"
+
+  , TheoryAxiom "shl_overflow_bounds"
+      "![X,N]: (gt(shl(X,N),0) | eq(shl(X,N),0))"
+      "Shift left result is non-negative (with overflow)"
+  ]
 
 -- =============================================================================
 -- Presburger Arithmetic Decision Procedure
