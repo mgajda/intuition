@@ -124,11 +124,11 @@ compute s =
           writeFile smtFilename smtContent
           putStrLn $ "\n📄 SMT-LIB2 file generated with WP: " ++ smtFilename
 
-          -- Generate TPTP file
-          let tptpContent = generateTPTPWithAxioms ctx
+          -- Generate TPTP file with bit-blasting
+          let tptpContent = generateTPTPWithImplications ctx
           let filename = "vc_" ++ show n ++ ".p"
           writeFile filename tptpContent
-          putStrLn $ "📄 TPTP file generated: " ++ filename
+          putStrLn $ "📄 TPTP file generated (bit-blasted): " ++ filename
 
     isVerifiableAssertion ctx = case assertCondition ctx of
       Nothing -> False
