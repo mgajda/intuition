@@ -293,7 +293,7 @@ mkBitVector name n = [name ++ "_" ++ show i | i <- [0..n-1]]
 -- Example: constBitVector 42 8 = ["0", "1", "0", "1", "0", "1", "0", "0"]  -- 42 in binary
 constBitVector :: Integer -> Int -> BitVector
 constBitVector val n =
-  let bits = reverse $ take n $ (intToBits val ++ repeat False)
+  let bits = reverse $ take n (intToBits val ++ repeat False)
   in Prelude.map (\b -> if b then "1" else "0") bits
   where
     intToBits 0 = []
