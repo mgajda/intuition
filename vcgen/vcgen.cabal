@@ -135,3 +135,11 @@ executable yulvcgen
                     Logic, AbsTiny,
     hs-source-dirs:   app/Yul, app, app/Tiny
     default-language:    Haskell2010
+
+executable compare-cnf
+    import:           warnings
+    main-is:          CompareCNF.hs
+    build-depends:  base >=4.18.2.1
+    other-modules:  BitBlast
+    hs-source-dirs:   app
+    default-language:    Haskell2010

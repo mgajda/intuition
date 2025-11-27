@@ -162,6 +162,125 @@ bitFormulaToTPTP f = case f of
   BitFalse -> "$false"
 
 -- =============================================================================
+-- Conversion to CNF (for comparison)
+-- =============================================================================
+
+type Clause = [String]  -- Disjunction of literals
+type CNF = [Clause]     -- Conjunction of clauses
+
+-- | Convert BitFormula to CNF using Tseitin transformation
+-- Returns (CNF, auxiliary variable counter)
+bitFormulaToCNF :: BitFormula -> (CNF, Int)
+bitFormulaToCNF formula =
+  let (tseitin, nextVar) = toTseitin formula 1
+      (cnf, _) = tseitinToCNF tseitin nextVar
+  in (cnf, nextVar)
+
+-- | Tseitin intermediate representation
+data TseitinFormula
+  = TVar String
+  | TAux Int  -- Auxiliary variable
+  | TNot TseitinFormula
+  | TAnd TseitinFormula TseitinFormula
+  | TOr TseitinFormula TseitinFormula
+  | TImpl TseitinFormula TseitinFormula
+  deriving (Show, Eq)
+
+-- | Convert BitFormula to Tseitin with auxiliary variables
+toTseitin :: BitFormula -> Int -> (TseitinFormula, Int)
+toTseitin f nextVar = case f of
+  BitVar v -> (TVar v, nextVar)
+  BitTrue -> (TVar "$true", nextVar)
+  BitFalse -> (TNot (TVar "$true"), nextVar)
+
+  BitNot p ->
+    let (p', nv) = toTseitin p nextVar
+    in (TNot p', nv)
+
+  BitAnd p q ->
+    let (p', nv1) = toTseitin p nextVar
+        (q', nv2) = toTseitin q nv1
+    in (TAnd p' q', nv2)
+
+  BitOr p q ->
+    let (p', nv1) = toTseitin p nextVar
+        (q', nv2) = toTseitin q nv1
+    in (TOr p' q', nv2)
+
+  BitImpl p q ->
+    let (p', nv1) = toTseitin p nextVar
+        (q', nv2) = toTseitin q nv1
+    in (TImpl p' q', nv2)
+
+-- | Convert Tseitin to CNF clauses
+tseitinToCNF :: TseitinFormula -> Int -> (CNF, Int)
+tseitinToCNF f nextVar = case f of
+  TVar v -> ([[v]], nextVar)
+
+  TNot (TVar v) -> ([["~" ++ v]], nextVar)
+
+  -- a AND b: introduce auxiliary z
+  -- z <=> (a AND b)
+  -- Clauses: (~z | a), (~z | b), (~a | ~b | z)
+  TAnd a b ->
+    let z = "aux_" ++ show nextVar
+        (aCNF, nv1) = tseitinToCNF a (nextVar + 1)
+        (bCNF, nv2) = tseitinToCNF b nv1
+        -- Get top variable for a and b
+        aTop = getTseitinTop a
+        bTop = getTseitinTop b
+        auxClauses = [["~" ++ z, aTop], ["~" ++ z, bTop], ["~" ++ aTop, "~" ++ bTop, z]]
+    in (aCNF ++ bCNF ++ auxClauses, nv2)
+
+  -- a OR b: introduce auxiliary z
+  -- z <=> (a OR b)
+  -- Clauses: (z | ~a), (z | ~b), (a | b | ~z)
+  TOr a b ->
+    let z = "aux_" ++ show nextVar
+        (aCNF, nv1) = tseitinToCNF a (nextVar + 1)
+        (bCNF, nv2) = tseitinToCNF b nv1
+        aTop = getTseitinTop a
+        bTop = getTseitinTop b
+        auxClauses = [[z, "~" ++ aTop], [z, "~" ++ bTop], [aTop, bTop, "~" ++ z]]
+    in (aCNF ++ bCNF ++ auxClauses, nv2)
+
+  -- a => b is ~a OR b
+  TImpl a b -> tseitinToCNF (TOr (TNot a) b) nextVar
+
+  TNot (TNot a) -> tseitinToCNF a nextVar  -- Double negation
+
+  TNot a ->
+    let z = "aux_" ++ show nextVar
+        (aCNF, nv1) = tseitinToCNF a (nextVar + 1)
+        aTop = getTseitinTop a
+        auxClauses = [[z, aTop], ["~" ++ z, "~" ++ aTop]]
+    in (aCNF ++ auxClauses, nv1)
+
+-- | Get the top-level variable of a Tseitin formula
+getTseitinTop :: TseitinFormula -> String
+getTseitinTop f = case f of
+  TVar v -> v
+  TAux n -> "aux_" ++ show n
+  _ -> "unknown"  -- Shouldn't happen after conversion
+
+-- | Serialize CNF to TPTP format
+cnfToTPTP :: CNF -> String
+cnfToTPTP clauses =
+  let clauseStrs = zipWith formatClause [1..] clauses
+  in unlines $ "% CNF encoding (for comparison)" : clauseStrs
+  where
+    formatClause n lits =
+      "fof(clause_" ++ show n ++ ", axiom, (" ++
+      intercalate " | " lits ++ "))."
+
+-- | Measure CNF size
+measureCNF :: CNF -> (Int, Int)  -- (num clauses, num literals)
+measureCNF cnf =
+  let numClauses = length cnf
+      numLiterals = sum (Prelude.map length cnf)
+  in (numClauses, numLiterals)
+
+-- =============================================================================
 -- Helper Functions
 -- =============================================================================
 
