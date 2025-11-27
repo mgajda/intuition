@@ -17,6 +17,9 @@ import Text.Printf (printf)
 import AbsTiny (BExpr(..), FormulaD (..), Formula (..), Binder(..))
 import qualified AbsTiny
 
+-- Import bit-blasting for efficient arithmetic encoding
+import qualified BitBlast as BB
+
 -- Import Yul AST types
 import AbsYul
 
@@ -469,11 +472,12 @@ exprToImplication e = case e of
   YulFunCall (YulId (Ident "iszero")) [a] ->
     ImpNot (exprToImplication a)
 
-  -- === ATOMIC PREDICATES (keep as atomic formulas) ===
+  -- === BIT-BLASTED COMPARISONS (for efficiency) ===
 
-  -- Comparisons are atomic predicates
+  -- Comparisons: use bit-blasting with logarithmic trees
+  -- For 256-bit EVM integers, this creates O(log 256) = O(8) depth
   YulFunCall (YulId (Ident op)) [a, b] | op `elem` ["gt", "lt", "eq", "slt", "sgt"] ->
-    ImpAtom op [yulToTerm a, yulToTerm b]
+    bitBlastComparison op a b
 
   -- === FALLBACK ===
   -- If not a recognized propositional connective or comparison,
@@ -493,6 +497,54 @@ yulToTerm expr = case expr of
 
   -- Unknown
   _ -> TermVar "unknown"
+
+-- | Convert BitBlast.BitFormula to ImplicationFormula
+bitFormulaToImp :: BB.BitFormula -> ImplicationFormula
+bitFormulaToImp f = case f of
+  BB.BitVar v -> ImpAtom v []  -- Treat bit variable as 0-ary predicate
+  BB.BitNot p -> ImpNot (bitFormulaToImp p)
+  BB.BitImpl p q -> ImpImpl (bitFormulaToImp p) (bitFormulaToImp q)
+  BB.BitAnd p q -> ImpNot (ImpImpl (bitFormulaToImp p) (ImpNot (bitFormulaToImp q)))
+  BB.BitOr p q -> ImpImpl (ImpNot (bitFormulaToImp p)) (bitFormulaToImp q)
+  BB.BitTrue -> ImpNot ImpFalse  -- true = ~false
+  BB.BitFalse -> ImpFalse
+
+-- | Bit-blast a comparison operation
+-- Uses logarithmic trees for efficiency with 256-bit EVM integers
+bitBlastComparison :: String -> YulExpr -> YulExpr -> ImplicationFormula
+bitBlastComparison op xExpr yExpr =
+  let xBits = yulExprToBitVector xExpr
+      yBits = yulExprToBitVector yExpr
+      bitFormula = case op of
+        "gt" -> BB.bitGt xBits yBits
+        "lt" -> BB.bitLt xBits yBits
+        "eq" -> BB.bitEq xBits yBits
+        "sgt" -> BB.bitGt xBits yBits  -- Signed: TODO proper signed comparison
+        "slt" -> BB.bitLt xBits yBits  -- Signed: TODO proper signed comparison
+        _ -> error $ "bitBlastComparison: unknown op " ++ op
+  in bitFormulaToImp bitFormula
+
+-- | Convert Yul expression to bit vector (for bit-blasting)
+-- EVM uses 256-bit integers
+yulExprToBitVector :: YulExpr -> BB.BitVector
+yulExprToBitVector expr = case expr of
+  -- Variable: create 256-bit vector
+  YulIdentExpr (YulId (Ident name)) ->
+    BB.mkBitVector name 256
+
+  -- Literal: convert to 256-bit constant
+  YulLitExpr (YulLitNum n) ->
+    BB.constBitVector n 256
+
+  -- Function call: create bit vector for result
+  -- For now, treat as a fresh variable representing the result
+  YulFunCall (YulId (Ident fname)) args ->
+    let argNames = Prelude.map yulToTerm args
+        resultName = fname ++ "(" ++ intercalate "," (Prelude.map termToTPTP argNames) ++ ")"
+    in BB.mkBitVector resultName 256
+
+  -- Default: treat as unknown variable
+  _ -> BB.mkBitVector "unknown" 256
 
 -- | Serialize ImplicationFormula to TPTP format
 impFormulaToTPTP :: ImplicationFormula -> String

@@ -108,7 +108,7 @@ executable vcgen
 
     other-modules:  Logic, AbsTiny, ParTiny, PrintTiny,
                     SkelTiny, LexTiny,
-                    YulLogic, AbsYul, ParYul, PrintYul,
+                    YulLogic, BitBlast, AbsYul, ParYul, PrintYul,
                     SkelYul, LexYul,
 
     -- Directories containing source files.
@@ -130,7 +130,7 @@ executable yulvcgen
     build-tool-depends: BNFC:bnfc >=2.9.6,
                     happy:happy >=1.19.12,
                     alex:alex >=3.2.7
-    other-modules:  YulLogic, AbsYul, ParYul, PrintYul,
+    other-modules:  YulLogic, BitBlast, AbsYul, ParYul, PrintYul,
                     SkelYul, LexYul,
                     Logic, AbsTiny,
     hs-source-dirs:   app/Yul, app, app/Tiny
